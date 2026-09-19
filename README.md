@@ -1,5 +1,3 @@
-# 2024-001_TLS_gastric_cancer
-
 This repository contains coding scripts associated with the paper:
 
 > Groen-Van Schooten and Franco Fernandez et al. *Mapping the complexity and diversity of tertiary lymphoid structures in primary and peritoneal metastatic gastric cancer*. Journal for ImmunoTherapy of Cancer (2024). DOI: 10.1136/jitc-2024-009243.
