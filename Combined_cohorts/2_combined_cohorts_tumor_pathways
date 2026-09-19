@@ -1,0 +1,2099 @@
+---
+title: "Tumor pathways DSP1 and DSP2"
+author: "R. Franco Fernandez"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    html_document:
+      code_download: true
+      dev: "svg"
+      code_folding: hide
+      toc: true
+      toc_float:
+        collapsed: false
+        smooth_scroll: true
+      toc_depth: 3
+      wrap: sentence
+editor_options: 
+    markdown: 
+    wrap: sentence
+---
+
+# Aim
+The aim of this script to analyze DSP1 and DSP2 data together, focusing on cancer cells.
+
+# Setup
+Load libraries
+```{r setup, include=FALSE, message=F, warning=F}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(SpatialDecon)
+library(umap)
+library(msigdbr)
+library(dplyr)
+library(ggforce)
+library(ggplot2)
+library(scales)
+library(reshape2)
+library(cowplot)
+library(Rtsne)
+library(pheatmap) 
+library(ggrepel) 
+library(scales) 
+library(DT)
+library(plotly)
+library(gridExtra)
+library(RColorBrewer)
+library(writexl)
+library(patchwork)
+library(ggpubr)
+library(stringr)
+library(pals)
+library(viridis)
+library(readxl)
+library(GSVA) 
+library(forcats)
+library(tibble)
+library(tidyr)
+library(magrittr)
+library(corrplot)
+library(psych) 
+library(rstatix)
+library(tibble)
+
+knitr::opts_chunk$set(echo = TRUE, dev = "svg")
+theme_set(theme_classic())
+options(scipen = 999)
+
+output <- "Combined/Output/"
+
+```
+
+Upload files
+```{r select_annotations}
+#DSP1 data
+target_Data <- readRDS("Combined/target_Data_DSP1and2.RDS")
+
+#annotation vectors
+ann_c_TLS <- list(region = c("TLS"=brewer.pal(6,"Set1")[3]))
+ann_c_TIL <- list(region = c("TIL"=brewer.pal(6,"Set1")[2]))
+ann_c_tumor <- list(region = c("Tumor"=brewer.pal(6,"Set1")[1]))
+ann_c_TLS_TIL <-  list(region = c("TLS"=brewer.pal(6,"Set1")[3], "TIL"=brewer.pal(6,"Set1")[2]))
+ann_c_region <- list(region = c("Tumor"=brewer.pal(6,"Set1")[1]), 
+                     "TLS"=brewer.pal(6,"Set1")[3], 
+                     "TIL"=brewer.pal(6,"Set1")[2])
+
+ann_c_maturity <- list("maturity" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+ann_c_mature_pt <- list("mature_pt" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+ann_c_pt <- list(patient = c(
+            "P1"=brewer.pal(12,"Set3")[4],
+            "P2"=brewer.pal(12,"Set3")[5],	
+            "P3"=brewer.pal(12,"Set3")[6],
+            "P4"=brewer.pal(12,"Set3")[7],
+            "P5"=brewer.pal(12,"Set3")[8],
+            "P6"=brewer.pal(12,"Set3")[9],
+            "P7"=brewer.pal(12,"Set3")[10],
+            "P8"=brewer.pal(12,"Set3")[11],
+            "P9"=brewer.pal(12,"Set3")[12],
+            "P10"=brewer.pal(12,"Paired")[1],
+            "P11"="#A349A4",
+            "P12"="#FFFF33",	
+            "P13"="#E7298A",
+            "P14"="#091833",
+            "P15"="#1B9E77",
+            "P16"="#D95F02",
+            "P17"="#7570B3",
+            "P18"="#66A61E"))
+
+
+ann_c_tissue <- list(tissue = c("GC"="#F0A0FF", "PM"="#FCD800"))
+
+ann_c_maturity <- list("maturity" = c("LA" = "#ABF1FF", "early TLS" = "#4EC1D7","PF-like TLS" = "#14919E","SF-like TLS" = "#0D636C"))
+
+ann_c_DSP <-  list("DSP" = c("1" = "#a7b0a8",
+                             "2" = "#3fe04f"))
+
+theme_default <- function () {
+  
+    theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(), 
+        plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(),
+        legend.position = "top") 
+}
+
+theme_default_sq <- function () {
+  
+    theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(), 
+        plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(),
+        aspect.ratio = 1,
+        legend.position = "top") 
+}
+
+theme_bp <- function() {
+        theme(legend.title = element_blank(), 
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(face = "bold", size = 15),
+        plot.title=element_text(hjust=0.5, face = "bold"),
+        axis.ticks.x=element_blank(),
+        axis.text.x = element_text(vjust = 1, hjust = 1, angle = 45, size = 11),
+        axis.text.y = element_text(size = 11)) 
+}
+
+save_pheatmap_pdf <- function(x, filename, width=25, height=15) {
+     stopifnot(!missing(x))
+     stopifnot(!missing(filename))
+     pdf(filename, width=width, height=height)
+     grid::grid.newpage()
+     grid::grid.draw(x$gtable)
+     dev.off()
+}
+
+```
+
+# Annotations
+```{r anns}
+index <- c("name", "aois","maturity2" , "mature_pt2")
+ann1 <- read_xlsx("Combined/ann_1.xlsx")
+ann1 <- ann1[,index]
+colnames(ann1) <- c("name", "aois","maturity" , "mature_pt")
+ann1$DSP <- 1
+
+index <-  c("name", "aois","maturity" , "mature_pt")
+ann2 <- read_xlsx("Combined/ann_2.xlsx")
+ann2 <- ann2[,index]
+colnames(ann2) <-  c("name", "aois","maturity" , "mature_pt")
+ann2$DSP <- 2
+
+ann <- rbind(ann1, ann2)
+pData(target_Data)$aois <- rownames(pData(target_Data))
+
+ann <- pData(target_Data) %>%
+  select(c("slide name", "patient", "tissue", "region","segment", "aois")) %>%
+  left_join(ann, by = "aois")
+
+#fix annotations...
+mature <- ann %>% filter(mature_pt == "mature") %>% distinct(patient) %>% unlist %>% as.vector
+non_mature <- ann %>% filter(mature_pt == "non-mature") %>% distinct(patient) %>% unlist %>% as.vector
+
+ann$mature_pt[ann$patient %in% mature] <- "mature"
+ann$mature_pt[ann$patient %in% non_mature] <- "non-mature"
+
+pData(target_Data)$mature_pt[pData(target_Data)$patient %in% mature] <- "mature"
+pData(target_Data)$mature_pt[pData(target_Data)$patient %in% non_mature] <- "non-mature"
+
+DSP1 <- ann %>% filter(DSP == 1) %>% distinct(patient) %>% unlist %>% as.vector
+ann$DSP <- ifelse(ann$patient %in% DSP1, 1, 2)
+pData(target_Data)$DSP <- ifelse(ann$patient %in% DSP1, 1, 2) %>% as.factor
+
+#Subsetting vectors
+genes <- rownames(target_Data@assayData[["exprs"]])
+
+active_aois_CD45 <- ann$aois[which(ann$segment == "CD45")]
+active_aois_TLS <- ann$aois[which(ann$region == "TLS")]
+active_aois_TIL<- ann$aois[which(ann$region == "TIL")]
+
+#rm(list = c("ann1", "ann2", "index", "DSP1"))
+```
+
+```{r}
+target_Data <- subset(target_Data,select = pData(target_Data)[["region"]] == "Tumor")
+
+pData(target_Data)$testMaturity <- factor(pData(target_Data)$mature_pt, levels = c("non-mature", "mature"))
+pData(target_Data)$testPatient <- factor(pData(target_Data)$patient, unique(target_Data$patient))  # Manual
+pData(target_Data)$testDSP <- factor(pData(target_Data)$DSP, unique(target_Data$DSP))
+pData(target_Data)$testTissue <- factor(pData(target_Data)$tissue, unique(target_Data$tissue))
+pData(target_Data)[["slide name"]] <- factor(pData(target_Data)[["slide name"]])
+
+ann <- subset(ann, region == "Tumor")
+```
+
+# Load pathways
+Immune
+
+```{r immune}
+pathwayfiles = c("LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx",
+                 "LBL-10244-03_nCounter_Vantage_RNA_Adaptive_Immunity_Panel.xlsx", 
+                 "LBL-10248-03_nCounter_Vantage_RNA_Cellular_Profiling_Panel.xlsx",
+                 "LBL-10249-03_nCounter_Vantage_RNA_Innate_Immunity_Panel.xlsx",
+                 "LBL-10358-06_nCounter_Vantage_3D_RNA_Protein_Immune_Cell_Profiling_Assay_Probe_List_CS.xlsx",
+                 "LBL-10809-03_GeoMx_Cancer_Transcriptome_Atlas_Probe_List.xlsx",
+                 "LBL-C0269-03_nCounter-Human-Immunology-V2-Panel-Gene-List.xlsx",
+                 "Nanostring immune exhaustion gene list.xlsx")
+
+#vector is also order in list
+nameextenstions = c("PanCancer_Immune_Profiling_Panel",
+                    "RNA_Adaptive_Immunity_Panel",
+                    "RNA_Cellular_Profiling_Panel",
+                    "RNA_Innate_Immunity_Panel",
+                    "RNA_Protein_Immune_Cell_Profiling_Assay",
+                    "GeoMx_Cancer_Transcriptome_Atlas",
+                    "Human-Immunology-V2-Panel",
+                    "Nanostring immune exhaustion gene list")
+
+relevantslides = c("Immune Response Categories",
+                   "Annotations",
+                   "Annotations",
+                   "Annotations",
+                   "Immune Response Categories",
+                   "Annotations",
+                   "Annotations",
+                   "Functional Themes")
+
+
+pathwaylists = list()
+for (i in 1:length(pathwayfiles)){
+  df = data.frame(read_xlsx(paste("Panels/", pathwayfiles[i], sep=''), sheet=relevantslides[i], skip=1, col_types="text"))
+  ncol = dim(df)[2] - 2
+  pathways = list()
+  for (n in 1:ncol){
+    Col = df[,n+2]
+    genes = Col%in%'+'
+    pathways[[n]] = df[genes,1]
+  }
+  names(pathways) <- paste(names(df)[3:(ncol+2)])
+  names(pathways) <- gsub(".", " ", names(df)[3:(ncol+2)], fixed = T)
+
+  pathwaylists[[i]] <- pathways
+}
+
+names(pathwaylists) <- nameextenstions
+
+```
+
+```{r}
+#make a list
+genes <- rownames(exprs(target_Data))
+
+#import different categories from CTApanel
+categories <- read_xlsx("Panels/LBL-10809-03_GeoMx_Cancer_Transcriptome_Atlas_Probe_List.xlsx", sheet = "Categories") %>% as.data.frame
+categories <- tidyr::gather(categories, "panel","pathways")
+categories <- subset(categories, pathways != "NA")
+categories <- arrange(categories, pathways)
+
+#make a list
+msigdbr_list <-  pathwaylists[["GeoMx_Cancer_Transcriptome_Atlas"]]
+
+names <- read_xlsx("Panels/CTA-panel-names.xlsx") %>% as.data.frame
+names(msigdbr_list) <- names$new_names #correct the names
+
+msigdbr_list<- lapply(msigdbr_list, function(x) x[x %in% genes])
+msigdbr_list <- msigdbr_list[lapply(msigdbr_list, length) > 3]
+
+cancer_ag <- msigdbr_list[["Cancer Antigens"]]
+
+#annotation colors 
+ann_colors_panels = list(
+  'panel' = c("Adaptive Immunity"=brewer.pal(8,"Accent")[1], "Innate Immunity"=brewer.pal(8,"Accent")[2], "Immune Response"=brewer.pal(8,"Accent")[3])
+)
+
+```
+
+```{r}
+#Huang X, Nat. Com. 2023
+gene_panels <- read_xlsx("/net/beegfs/scratch/rjcfrancofernandez/Projects/General/Suppl_gene signatures.xlsx")
+gene_list <- list()
+
+for (sig in 1:ncol(gene_panels)) {
+  
+  gene_list[[colnames(gene_panels)[sig]]] <- gene_panels[,sig] %>% na.omit %>% unlist %>% as.vector
+  
+}
+
+gene_list <- lapply(gene_list, function(x) x[x %in% genes])
+gene_list <- gene_list [lapply(gene_list, length) > 3]
+
+```
+
+
+```{r}
+immune_panels <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Adaptive Immunity" | categories$panel == "Innate Immunity" | categories$panel == "Immune Response"])
+
+#add from other CTA panels
+other <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Cell Function"])
+immune_panels["Apoptosis"] <- other["Apoptosis"]
+immune_panels["Phagocytosis"] <- other["Phagocytosis"]
+
+other <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Signaling Pathways"])
+immune_panels["TGF-beta Signaling"] <- other["TGF-beta Signaling"]
+immune_panels["VEGF Signaling"] <- other["VEGF Signaling"]
+
+#add from Huang X, Nat. Com. 2023
+immune_panels["M1-like activation"] <- gene_list["M1"]
+immune_panels["M2-like activation"] <- gene_list["M2"]
+immune_panels["Pro-inflammation"] <- gene_list["Pro-inflammatory"]
+immune_panels["Anti-inflammation"] <- gene_list["Anti-inflammatory"]
+immune_panels["Cytotoxicity"] <- gene_list["Cytotoxic"] #has more genes
+immune_panels["Proliferation"] <- gene_list["Proliferative"]
+
+immune_panels["Cancer Antigens"] <- NULL
+
+pw_gene_df_im<-data.frame(Pathway = names(immune_panels))
+pw_gene_df_im$genes<-immune_panels
+```
+
+CTA other pathways
+```{r other CTA}
+#subset immune panels from CTA
+tumor_panels <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Metabolism" | categories$panel == "Cell Function" | categories$panel == "Physiology & Disease"])
+
+#annotation colors 
+ann_colors_panels = list(
+  'panel' = c("Metabolism"=brewer.pal(8,"Accent")[1], "Cell Function"=brewer.pal(8,"Accent")[2], "Physiology & Disease"=brewer.pal(8,"Accent")[3])
+)
+
+tumor_panels <- lapply(tumor_panels, function(x) x[x %in% genes])
+tumor_panels <- tumor_panels [lapply(tumor_panels, length) > 3]
+
+#df
+pw_gene_df<-data.frame(Pathway = names(tumor_panels))
+pw_gene_df$genes<-tumor_panels
+```
+
+Signalling pathways
+```{r signaling}
+tumor_signalling <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Signaling Pathways"])
+
+tumor_signalling <- lapply(tumor_signalling, function(x) x[x %in% genes])
+tumor_signalling <- tumor_signalling [lapply(tumor_signalling, length) > 3]
+
+#df
+pw_gene_df_sig<-data.frame(Pathway = names(tumor_signalling))
+pw_gene_df_sig$genes<-tumor_signalling
+```
+
+Metabolic
+
+```{r metabolic}
+#h_gene_sets = msigdbr(species = "human", category = "H")
+
+h_gene_sets = rbind(msigdbr(species = "human", subcategory = "CP:KEGG"),
+                    msigdbr(species = "human", subcategory = "CP:REACTOME"))
+
+msigdbr_list_met <- split(x = h_gene_sets$gene_symbol, f = h_gene_sets$gs_name)
+
+met_pw <- grep(pattern = "METABOL", x = names(msigdbr_list_met), value = T, ignore.case = T)
+msigdbr_list_met <- msigdbr_list_met[names(msigdbr_list_met) %in% met_pw]
+names(msigdbr_list_met) <- gsub(pattern = "REACTOME_", replacement = "", x = names(msigdbr_list_met))
+names(msigdbr_list_met) <- gsub(pattern = "KEGG_", replacement = "", x = names(msigdbr_list_met))
+names(msigdbr_list_met) <- gsub(pattern = "_", replacement = " ", x = names(msigdbr_list_met))
+#names(msigdbr_list_met) <- str_to_sentence(names(msigdbr_list_met))
+
+msigdbr_list_met <- lapply(msigdbr_list_met, function(x) x[x %in% genes])
+msigdbr_list_met <- msigdbr_list_met [lapply(msigdbr_list_met, length) > 3]
+
+msigdbr_list_met <- msigdbr_list_met[!duplicated(names(msigdbr_list_met))]
+
+#prepare df for accurate merging back genes later
+pw_gene_df_met<-data.frame(Pathway = names(msigdbr_list_met))
+pw_gene_df_met$genes<-msigdbr_list_met
+
+```
+
+Kegg
+
+```{r kegg reactome}
+h_gene_sets = rbind(msigdbr(species = "human", subcategory = "CP:KEGG"))
+
+msigdbr_list_kegg <- split(x = h_gene_sets$gene_symbol, f = h_gene_sets$gs_name)
+
+names(msigdbr_list_kegg) <- gsub(pattern = "KEGG_", replacement = "", x = names(msigdbr_list_kegg))
+names(msigdbr_list_kegg) <- gsub(pattern = "_", replacement = " ", x = names(msigdbr_list_kegg))
+#names(msigdbr_list_kegg) <- str_to_title(names(msigdbr_list_kegg))
+
+genes <- rownames(exprs(target_Data))
+
+# pathways with genes present in probe panel & > 2 genes
+msigdbr_list_kegg <- lapply(msigdbr_list_kegg, function(x) x[x %in% genes])
+msigdbr_list_kegg <- msigdbr_list_kegg[lapply(msigdbr_list_kegg, length) > 3]
+
+#prepare df for accurate merging back genes later
+pw_gene_df_kegg<-data.frame(Pathway = names(msigdbr_list_kegg))
+pw_gene_df_kegg$genes<-msigdbr_list_kegg
+
+```
+
+reactome
+
+```{r reactome}
+h_gene_sets = rbind(msigdbr(species = "human", subcategory = "CP:REACTOME"))
+
+msigdbr_list_reactome <- split(x = h_gene_sets$gene_symbol, f = h_gene_sets$gs_name)
+
+names(msigdbr_list_reactome) <- gsub(pattern = "REACTOME_", replacement = "", x = names(msigdbr_list_reactome))
+names(msigdbr_list_reactome) <- gsub(pattern = "_", replacement = " ", x = names(msigdbr_list_reactome))
+names(msigdbr_list_reactome) <- str_to_title(names(msigdbr_list_reactome))
+
+genes <- rownames(exprs(target_Data))
+
+# pathways with genes present in probe panel & > 2 genes
+msigdbr_list_reactome <- lapply(msigdbr_list_reactome, function(x) x[x %in% genes])
+msigdbr_list_reactome <- msigdbr_list_reactome[lapply(msigdbr_list_reactome, length) > 3]
+
+#prepare df for accurate merging back genes later
+pw_gene_df_reactome<-data.frame(Pathway = names(msigdbr_list_reactome))
+pw_gene_df_reactome$genes<-msigdbr_list_reactome
+```
+
+
+Wikipathways
+```{r wikipathways}
+h_gene_sets = rbind(msigdbr(species = "human", subcategory = "CP:WIKIPATHWAYS"))
+
+msigdbr_list_wiki <- split(x = h_gene_sets$gene_symbol, f = h_gene_sets$gs_name)
+
+names(msigdbr_list_wiki) <- gsub(pattern = "WP_", replacement = "", x = names(msigdbr_list_wiki))
+names(msigdbr_list_wiki) <- gsub(pattern = "_", replacement = " ", x = names(msigdbr_list_wiki))
+#names(msigdbr_list_wiki) <- str_to_title(names(msigdbr_list_wiki))
+
+# pathways with genes present in probe panel & > 2 genes
+msigdbr_list_wiki <- lapply(msigdbr_list_wiki, function(x) x[x %in% genes])
+msigdbr_list_wiki <- msigdbr_list_wiki[lapply(msigdbr_list_wiki, length) > 3]
+
+#prepare df for accurate merging back genes later
+pw_gene_df_wiki<-data.frame(Pathway = names(msigdbr_list_wiki))
+pw_gene_df_wiki$genes<-msigdbr_list_wiki
+
+```
+
+Onco
+```{r oncogenic}
+h_gene_sets = rbind(msigdbr(subcategory = "PID"))
+
+msigdbr_list_onco <- split(x = h_gene_sets$gene_symbol, f = h_gene_sets$gs_name)
+names(msigdbr_list_onco) <- gsub(pattern = "PID", replacement = "", x = names(msigdbr_list_onco))
+names(msigdbr_list_onco) <- gsub(pattern = "PATHWAY", replacement = "", x = names(msigdbr_list_onco))
+names(msigdbr_list_onco) <- gsub(pattern = "_", replacement = " ", x = names(msigdbr_list_onco))
+
+#names(msigdbr_list_onco) <- str_to_title(names(msigdbr_list_onco))
+
+# pathways with genes present in probe panel & > 2 genes
+msigdbr_list_onco <- lapply(msigdbr_list_onco, function(x) x[x %in% genes])
+msigdbr_list_onco <- msigdbr_list_onco[lapply(msigdbr_list_onco, length) > 3]
+
+#prepare df for accurate merging back genes later
+pw_gene_df_onco<-data.frame(Pathway = names(msigdbr_list_onco))
+pw_gene_df_onco$genes<-msigdbr_list_onco
+
+```
+
+# GC versus PM
+```{r}
+order <- c(ann$aois[which(ann$tissue == "GC")], ann$aois[which(ann$tissue == "PM")])
+```
+
+## Immune
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = immune_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_im)
+```
+
+```{r fig.height=12, fig.width=12}
+
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+  
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+#save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_immune_hm.pdf"))
+
+}
+```
+
+## Signaling pathways
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = tumor_signalling,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_sig)
+```
+
+```{r fig.height=9, fig.width=12}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)] %>% unique
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         Xclustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways, FDR < 0.05",
+         annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue, ann_c_mature_pt),
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_signaling_hm.pdf"))
+}
+
+```
+
+## Other CTA pathways
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = tumor_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_sig)
+```
+
+
+```{r fig.height=9, fig.width=12}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+#save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_signaling_hm.pdf"))
+}
+
+```
+
+## Metabolic pathways
+
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_met,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_met)
+```
+
+```{r fig.height=12, fig.width=15}
+# Only significant pathways
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+  
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_metabolic_hm.pdf"))
+}
+
+```
+## KEGG
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_kegg,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_kegg)
+
+```
+
+```{r fig.height=12, fig.width=12}
+
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+# Only significant pathways
+if(length(active_pw) <= 1) {
+  
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_kegg_hm.pdf"))
+}
+ 
+```
+
+## Reactome
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_reactome,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_reactome)
+
+```
+
+```{r fig.height=22, fig.width=18}
+
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)]
+
+# Only significant pathways
+if(length(active_pw) <= 1) {
+  
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+#save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_reactome_hm.pdf"))
+}
+ 
+```
+
+## WIKI
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_wiki,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_wiki)
+```
+
+```{r fig.height=12, fig.width=15}
+# Only significant pathways
+if (length(unique(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)])) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(unique(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)])), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+if(length(active_pw) <= 1) {
+  
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_wiki_hm.pdf"))
+
+}
+
+```
+
+## Oncogenic gene signature set
+```{r warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_onco,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testDSP),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_onco)
+
+```
+
+```{r fig.height=12, fig.width = 15}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+# Only significant pathways
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 28,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: GC versus PM, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_GCvsPM_Tumor_oncogenic_hm.pdf"))
+
+}
+  
+```
+# Mature vs immature tumors
+```{r}
+target_Data <- subset(target_Data, select = phenoData(target_Data)[["mature_pt"]] %in% c("non-mature", "mature"))
+
+ann_mat <- ann %>% filter(mature_pt %in% c("non-mature", "mature"))
+order <- c(ann_mat$aois[which(ann_mat$mature_pt == "non-mature")], ann_mat$aois[which(ann_mat$mature_pt == "mature")])
+```
+
+## Immune
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = immune_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_im)
+r_ssgsea_test_im <- r_ssgsea_test
+```
+
+
+```{r fig.height=9, fig.width=12}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)] 
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+  
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_immune_hm.pdf"))
+
+}
+```
+
+## Signaling pathways
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = tumor_signalling,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_sig)
+```
+
+```{r fig.height=9, fig.width=12}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)] %>% unique
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+#save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_immune_hm.pdf"))
+}
+
+```
+## Other CTA pathways
+
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = tumor_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_sig)
+```
+
+
+```{r fig.height=9, fig.width=12}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+#save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_signaling_hm.pdf"))
+}
+
+```
+
+## Metabolic pathways
+
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_met,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_met)
+```
+
+```{r fig.height=10, fig.width=20}
+# Only significant pathways
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt,ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_metabolic_hm.pdf"))
+}
+
+```
+## KEGG
+
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_kegg,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_kegg)
+r_ssgsea_test_kegg <- r_ssgsea_test
+```
+
+```{r fig.height=20, fig.width=15}
+
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+# Only significant pathways
+if(length(active_pw) <= 1) {
+  
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, ],
+         scale = "row", cluster_cols = T, 
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_kegg_hm_FDR_0.05.pdf"))
+}
+ 
+```
+
+## Reactome
+
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_reactome,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_reactome)
+r_ssgsea_test_reactome <- r_ssgsea_test
+```
+
+```{r fig.height=15, fig.width=15}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+# Only significant pathways
+if(length(active_pw) <= 1) {
+  
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order ],
+         scale = "row", cluster_cols = F, gaps_col = 19, cluster_rows = T,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_reactome_hm_FDR_0.05.pdf"))
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.01)]
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19, cluster_rows = F,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, FDR < 0.01 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_reactome_hm_FDR_0.01.pdf"))
+}
+ 
+```
+
+## WIKI
+```{r  warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_wiki,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r}
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r}
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_wiki)
+r_ssgsea_test_wiki <- r_ssgsea_test
+```
+
+```{r fig.height=10, fig.width=15}
+# Only significant pathways
+if (length(unique(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)])) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(unique(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)])), "pathways with FDR < 0.05"))
+}
+
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+if(length(active_pw) <= 1) {
+  
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         Xclustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways: non-mature versus mature pt, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_wikipathways_hm_FDR_0.05.pdf"))
+
+}
+
+```
+
+## Oncogenic gene signature set
+```{r warning = F}
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = msigdbr_list_onco,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix <-assayDataElement(geneSetObj, elt = "exprs")
+```
+
+```{r }
+pData(geneSetObj)$testMaturity <- factor(pData(geneSetObj)$mature_pt, levels = c("non-mature", "mature"))
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))  # Manual
+pData(geneSetObj)$testDSP <- factor(pData(geneSetObj)$DSP, unique(target_Data$DSP))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)[["slide name"]] <- factor(pData(geneSetObj)[["slide name"]])
+```
+
+```{r }
+mixedOutmc <-
+  mixedModelDE(geneSetObj,
+               elt = "exprs",
+               modelFormula = ~ testMaturity + (1 | testDSP),
+               groupVar = "testMaturity",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df_onco)
+r_ssgsea_test_onco <- r_ssgsea_test
+
+```
+
+```{r fig.height=15, fig.width=10}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+# Only significant pathways
+active_pw <- r_ssgsea_test$Pathway[which(r_ssgsea_test$FDR < 0.05)]
+
+if(length(active_pw) <= 1) {
+  print("No significant results to show")
+ 
+}else{
+
+Tumor_hm <- pheatmap(pw_matrix[active_pw, order],
+         scale = "row", cluster_cols = F, gaps_col = 19,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         Xclustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor pathways, FDR < 0.05",
+         annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue, ann_c_mature_pt, ann_c_DSP),
+         annotation_col = pData(target_Data)[, c("mature_pt", "tissue","patient", "DSP", "region")])
+
+save_pheatmap_pdf(x = Tumor_hm,  file = paste0(output,"DSP1and2_mature-vs-non-mat_Tumor_oncogenic_hm.pdf"))
+
+}
+  
+```
+
+# Expression of genes within significant pathways
+Here we use the log_limma data, which has undergone batch correction by limma. FDR < 0.05
+```{r}
+#Gene lists:
+#immune_panels, tumor_signalling, msigdbr_list_met, msigdbr_list_kegg , msigdbr_list_wiki , msigdbr_list_onco
+#r_ssgsea_test_im, r_ssgsea_test_onco, r_ssgsea_test_kegg, r_ssgsea_test_wiki
+
+wrangle <- function(x) {
+  
+  as.data.frame(x) %>% 
+  rownames_to_column("genes") %>%
+  pivot_longer(cols = 2:ncol(.), names_to = "aois", values_to = "exprs") %>%
+  left_join(pData(target_Data) %>% select("DSP", "patient", "region", "tissue", "mature_pt", "aois"), by = "aois") %>%
+  mutate(mature_pt = factor(mature_pt, levels = c("non-mature",  "mature")))
+
+  }
+```
+
+## Immune panels
+
+T cell checkpoints - limited selection
+```{r fig.height = 5, fig.width=10}
+goi <- c("CMTM4", "PDCD1", "ICOSLG", "PVRIG")
+
+stat_test <- assayDataElement(target_Data, elt = "log_limma")[goi,] %>% 
+  wrangle %>%
+  group_by(genes) %>%
+  wilcox_test(exprs ~ mature_pt) %>% 
+  mutate(FDR = p.adjust(.$p, method = "fdr")) %>% 
+  add_significance(p.col = "FDR", output.col = "p.signif") %>% print
+
+stat_test[stat_test == "****"] <- "***" #adjust cutoff
+
+assayDataElement(target_Data, elt = "log_limma")[goi,] %>% 
+  wrangle %>%
+  filter(genes %in% stat_test$genes[which(stat_test$FDR < 0.05)]) %>%
+  ggplot(aes(x = mature_pt, y = exprs)) +
+  geom_boxplot(aes(fill = mature_pt), width = 0.8) +
+  theme(aspect.ratio = 1.5, 
+        legend.title = element_blank()) +
+  scale_fill_manual(values = c("#CBB9F9", "#9066FA" )) +
+  facet_wrap(~genes, ncol = 4) +
+  stat_pvalue_manual(stat_test %>%
+                     add_xy_position, 
+                     hide.ns = T, 
+                     label = "p.signif", 
+                     tip.length = 0) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(x = "", y = "expression")
+
+```
+
+IL-6 signalling
+```{r fig.height = 5, fig.width=10}
+goi <- immune_panels["IL-6 Signaling"] %>% unlist() %>% as.vector() 
+
+stat_test <- assayDataElement(target_Data, elt = "log_limma")[goi,] %>% 
+  wrangle %>%
+  group_by(genes) %>%
+  wilcox_test(exprs ~ mature_pt) %>% 
+  mutate(FDR = p.adjust(.$p, method = "fdr")) %>% 
+  add_significance(p.col = "FDR", output.col = "p.signif") %>% print
+
+stat_test[stat_test == "****"] <- "***" #adjust cutoff
+
+assayDataElement(target_Data, elt = "log_limma")[goi,] %>% 
+  wrangle %>%
+  filter(genes %in% stat_test$genes[which(stat_test$FDR < 0.05)]) %>%
+  ggplot(aes(x = mature_pt, y = exprs)) +
+  geom_boxplot(aes(fill = mature_pt), width = 0.8) +
+  theme(aspect.ratio = 1.5, 
+        legend.title = element_blank()) +
+  scale_fill_manual(values = c("#CBB9F9", "#9066FA" )) +
+  facet_wrap(~genes, ncol = 4) +
+  stat_pvalue_manual(stat_test %>%
+                     add_xy_position, 
+                     hide.ns = T, 
+                     label = "p.signif", 
+                     tip.length = 0) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(x = "", y = "expression")
+```
+
+## wiki pathways
+
+```{r}
+index <- r_ssgsea_test_wiki$Pathway[which(r_ssgsea_test_wiki$FDR < 0.05)]
+msigdbr_list_wiki[index]
+
+index <- r_ssgsea_test_kegg$Pathway[which(r_ssgsea_test_kegg$FDR < 0.05)]
+msigdbr_list_kegg[index]
+
+```
+
+```{r}
+knitr::knit_exit()
+```
