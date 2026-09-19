@@ -1,0 +1,2549 @@
+---
+title: "TLS-DSP analysis"
+author: "Rosalia Franco Fernandez"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    html_document:
+      code_download: true
+      dev: "png"
+      code_folding: hide
+      toc: true
+      toc_float:
+        collapsed: false
+        smooth_scroll: true
+      toc_depth: 3
+      wrap: sentence
+editor_options: 
+    markdown: 
+    wrap: sentence
+---
+
+# Aim
+The aim of this script is to analyze data and generate figures for the TLS paper.
+
+# Setup
+Load libraries
+```{r setup, include=FALSE, message=F, warning=F}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(SpatialDecon)
+library(GSVA) 
+library(msigdbr)
+library(ggforce)
+library(scales)
+library(cowplot) 
+library(umap)
+library(Rtsne)
+library(ggrepel) 
+library(scales) 
+library(DT)
+library(plotly)
+library(gridExtra)
+library(RColorBrewer)
+library(gt)
+library(fgsea)
+library(pathview)
+library(png)
+library(viridis)
+library(standR)
+library(ggalluvial)
+library(preprocessCore)
+library(Polychrome)
+library("ape")
+library("ggtree")
+library(tidytree)
+library(ggsankey)
+library(ggpubr)
+library(rstatix)
+library(tidyverse)
+library(grid)
+library(psych)
+library(corrplot)
+library(Cairo)
+library(readxl)
+library(writexl)
+library(ComplexHeatmap)
+library(pheatmap)
+library(grDevices)
+library(DOSE)
+library(enrichplot)
+
+options(scipen = 999) 
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE) 
+```
+
+Upload files
+```{r select_annotations}
+target_Data <- readRDS("cohort1/Analysis/target_Data.RDS")
+
+figdir <- "cohort1/Analysis/Output/"
+
+count_mat <- dplyr::count(pData(target_Data), tissue,patient,region,segment,`slide name`, name, PNAd, `DC-LAMP`, `germinal center`, FDC)
+
+#annotation vectors
+ann_c_TLS <- list(region = c("TLS"=brewer.pal(6,"Set1")[3]))
+ann_c_TIL <- list(region = c("TIL"=brewer.pal(6,"Set1")[2]))
+ann_c_tumor <- list(region = c("Tumor"=brewer.pal(6,"Set1")[1]))
+ann_c_TLS_TIL <-  list(region = c("TLS"=brewer.pal(6,"Set1")[3], "TIL"=brewer.pal(6,"Set1")[2]))
+ann_c_region <- list(region = c("Tumor"=brewer.pal(6,"Set1")[1], 
+                     "TLS"=brewer.pal(6,"Set1")[3], 
+                     "TIL"=brewer.pal(6,"Set1")[2]))
+
+yes_no <- c("yes" = "#0F490E", "no" = "#BD2E2E", "NA" = "#FAF9F6")
+ann_c_PNAd <- list(PNAd = c(yes_no))
+ann_c_DCLAMP <- list("DC-LAMP" = c(yes_no))
+ann_c_germc <- list("germinal center" = c(yes_no[1:2]))
+ann_c_FDC <- list("FDC" = c(yes_no))
+ann_c_BCL6 <- list("BCL6" = c(yes_no))
+
+ann_c_pt <- list(patient = c("P1"=brewer.pal(12,"Set3")[4],
+            "P2"=brewer.pal(12,"Set3")[5],	
+            "P3"=brewer.pal(12,"Set3")[6],
+            "P4"=brewer.pal(12,"Set3")[7],
+            "P5"=brewer.pal(12,"Set3")[8],
+            "P6"=brewer.pal(12,"Set3")[9],
+            "P7"=brewer.pal(12,"Set3")[10],
+            "P8"=brewer.pal(12,"Set3")[11],
+            "P9"=brewer.pal(12,"Set3")[12],
+            "P10"=brewer.pal(12,"Paired")[1]))
+
+ann_c_pt_GC <- list(patient = c("P1"=brewer.pal(12,"Set3")[4],
+            "P2"=brewer.pal(12,"Set3")[5],	
+            "P3"=brewer.pal(12,"Set3")[6],
+            "P4"=brewer.pal(12,"Set3")[7],
+            "P5"=brewer.pal(12,"Set3")[8],
+            "P6"=brewer.pal(12,"Set3")[9]))
+
+
+ann_c_tissue <- list(tissue = c("GC"="#F0A0FF", "PM"="#FCD800"))
+ann_c_SN <- list('slide name' = c("GC1_2"=brewer.pal(8,"Dark2")[1], 
+                                  "GC3_4"=brewer.pal(8,"Dark2")[2], 
+                                  "GC5_6"=brewer.pal(8,"Dark2")[3],
+                                  "PM1_4"=brewer.pal(8,"Dark2")[4]))
+
+ann_c_maturity <- list("maturity" = c("LA" = "#ABF1FF", "early TLS" = "#4EC1D7","PF-like TLS" = "#14919E","SF-like TLS" = "#0D636C"))
+
+ann_c_maturity2 <- list("maturity2" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+ann_c_mature_pt2 <- list("mature_pt2" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+ann_c_panels = list('panel' = c("Adaptive Immunity"=brewer.pal(8,"Accent")[1], 
+                                     "Innate Immunity"=brewer.pal(8,"Accent")[2], 
+                                     "Immune Response"=brewer.pal(8,"Accent")[3]))
+
+ann_c_clusters_TLS <- list("clusters" = c("B naive enriched" = "#FF8080", 
+                                          "B memory enriched" = "#A0FFA0", 
+                                          "CD4 T memory enriched" = "#05BE78"))
+
+ann_c_clusters_TIL <- list("clusters" = c("CD8 T memory enriched" = "#5757F9" , 
+                                          "B memory enriched" = "#A0FFA0", 
+                                          "macrophage enriched" = "#C0B57B"))
+
+ann_c_clusters_TLS_TIL <- list("clusters" = c("B naive enriched" = "#FF8080", 
+                                              "B memory enriched" = "#A0FFA0", 
+                                             "CD4 T memory enriched" = "#05BE78", 
+                                              "CD8 T memory enriched" = "#5757F9", 
+                                              "macrophage enriched" = "#C0B57B"))
+
+ann_c_clusters_regions <- list("clusters" = c("B naive enriched" = "#FF8080", 
+                                              "B memory enriched" = "#A0FFA0", 
+                                             "CD4 T memory enriched" = "#05BE78", 
+                                              "CD8 T memory enriched" = "#5757F9", 
+                                              "macrophage enriched" = "#C0B57B",
+                                             "NA" = "#FAF9F6"))
+
+theme_default <- function () {
+  
+    theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(), 
+        plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank()) 
+}
+
+theme_umap <- function () {
+  
+    theme(axis.title = element_text(face = "bold"), 
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        aspect.ratio = 1) 
+}
+
+
+theme_bp <- function() {
+        theme(legend.title = element_blank(), 
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(face = "bold", size = 15),
+        plot.title=element_text(hjust=0.5, face = "bold"),
+        axis.text.x = element_text(vjust = 1, hjust = 1, angle = 45, size = 11),
+        axis.text.y = element_text(size = 11)) 
+}
+
+save_pheatmap_pdf <- function(x, filename, width=25, height=15) {
+     stopifnot(!missing(x))
+     stopifnot(!missing(filename))
+     pdf(filename, width=width, height=height)
+     grid::grid.newpage()
+     grid::grid.draw(x$gtable)
+     dev.off()
+}
+
+```
+
+Define active aois
+```{r define_active_aois}
+ann <- pData(target_Data) %>% as.data.frame %>% dplyr::select(`slide name`, name:BCL6)
+
+#grab all genes that survived QC
+genes <- rownames(exprs(target_Data))
+
+#order annotations
+ann_ordered <- ann %>% arrange(region, tissue, patient)
+
+#create aois for all regions
+active_aois_TIL <- rownames(ann_ordered)[ann_ordered$region == "TIL"]
+active_aois_TLS <- rownames(ann_ordered)[ann_ordered$region == "TLS"]
+active_aois_Tumor <- rownames(ann_ordered)[ann_ordered$region == "Tumor"]
+
+active_aois_TLS_GC <- rownames(ann_ordered)[ann_ordered$region == "TLS" & ann_ordered$tissue == "GC"]
+
+#aois based on segment 
+active_aois_CD45 <- rownames(ann_ordered)[ann_ordered$segment == "CD45"]
+active_aois_PanCK <- rownames(ann_ordered)[ann_ordered$segment == "PanCK"]
+
+rm(ann_ordered)
+```
+
+# UMAP
+```{r umap}
+custom_umap <- umap::umap.defaults
+custom_umap$random_state <- 42
+# run UMAP
+
+umap_out <-
+  umap(t(log2(assayDataElement(target_Data , elt = "q_norm"))),  
+       config = custom_umap)
+pData(target_Data)[, c("UMAP_1", "UMAP_2")] <- umap_out$layout[, c(1,2)]
+
+ggplot(pData(target_Data),
+       aes(x = UMAP_1, y = UMAP_2, color = region, shape = tissue)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = ann_c_region[[1]]) +
+  theme_classic()  +
+  theme_umap() 
+
+ggsave("DSP1_umap region_and_tissue.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+umap_out <-
+  umap(t(log2(assayDataElement(target_Data[,active_aois_TLS], elt = "q_norm"))),  
+       config = custom_umap)
+pData(target_Data)[active_aois_TLS, c("UMAP_1", "UMAP_2")] <- umap_out$layout[, c(1,2)]
+
+ggplot(pData(target_Data)[active_aois_TLS,],
+       aes(x = UMAP_1, y = UMAP_2, color = region, shape = tissue)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = ann_c_region[[1]]) +
+  theme_classic()  +
+  theme_umap()
+
+ggsave("DSP1_umap_TLS_only_and_tissue.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+```
+
+# Spatial decon
+## Preparation
+```{r , results='hide', include = F}
+#calculate backgrounds 
+bg = derive_GeoMx_background(
+  norm = assayDataElement(target_Data , elt = "q_norm"),
+  probepool = fData(target_Data)$Module,
+  negnames = c("NegProbe-CTP01","NegProbe-Kilo","Negative Probe", "NegProbe-WTX" ))
+  #negnames = "NegProbe-WTX")
+
+#safeTME
+data("safeTME")
+data("safeTME.matches")
+current_cell_profile<-safeTME
+head(current_cell_profile)
+
+#deselect endothelial cells and fibroblasts from matrix
+current_cell_profile <- current_cell_profile[,c(-17, -18)]
+
+#assign prettier names
+prettynames <- c("macrophages", "mast", "B naive", "B memory", "plasma cells", "CD4 T naive", "CD4 T memory", "CD8 T naive", "CD8 T memory", "NK cells", "pDC", "mDC", "classical monocytes", "non-classical monocytes", "neutrophils", "Treg") 
+colnames(current_cell_profile) <- prettynames
+
+#colorcode the cells
+cols = c("#A0FFA0", "#FF8080", "#05BE78", "#FFA040", "#5757F9", "#F74ED6", "#F2B77C", "#C0B57B", "#FFFFA0", "#8BABD3",
+         "#90BFF9", "#A00000", "#41F0AE", "#EECCF9", "#B856D7", "#F96495")
+names(cols) <- str_sort(prettynames)
+
+
+```
+
+Run spatial decon
+```{r}
+res <- runspatialdecon(object = target_Data[,active_aois_CD45],
+                      norm_elt = "q_norm",                      # normalized data
+                      raw_elt = "exprs",                        # expected background counts for every data point in norm
+                      #is_pure_tumor = target_Data$istumor,     # identities of the Tumor segments/observations
+                      cell_counts = target_Data$nuclei,         # nuclei counts, used to estimate total cells
+                      X = current_cell_profile,                  # safeTME matrix, used by default
+                      #cellmerges = safeTME.matches,            # safeTME.matches object, used by default
+                      #n_tumor_clusters = 5,                    # how many distinct tumor profiles to append to safeTME
+)
+```
+
+## Abundance/proportions per patient (means)
+Prepare dfs for TLS/TIL
+```{r dfs with means, results='hide', include = F}
+#extract absolute values
+absolute <- pmin(t(res$beta))  
+absolute %>% as.data.frame %>% arrange(rownames(absolute))
+
+## dfs for proportions
+#first make vectors for TLS patient aois
+ann2 <- subset(ann, region == "TLS")
+
+#Subset patients
+p1  <- rownames(ann2[which(ann2$patient == "P1"),])
+p2  <- rownames(ann2[which(ann2$patient == "P2"),])
+p3 <- rownames(ann2[which(ann2$patient == "P3"),])
+p4 <- rownames(ann2[which(ann2$patient == "P4"),])
+p5  <- rownames(ann2[which(ann2$patient == "P5"),])
+p6  <- rownames(ann2[which(ann2$patient == "P6"),])
+p7  <- rownames(ann2[which(ann2$patient == "P7"),])
+p8  <- rownames(ann2[which(ann2$patient == "P8"),])
+p9  <- rownames(ann2[which(ann2$patient == "P9"),])
+p10  <- rownames(ann2[which(ann2$patient == "P10"),])
+
+#df with absolute values of TLS
+absolute_TLS <- data.frame(P1 = rowMeans(absolute[,p1]), P2 = rowMeans(absolute[,p2]), P3 = rowMeans(absolute[,p3]), P4 = rowMeans(absolute[,p4]), P5 = rowMeans(absolute[,p5]), P6 = rowMeans(absolute[,p6]), P7 = rowMeans(absolute[,p7]), P8 = rowMeans(absolute[,p8]), P9 = rowMeans(absolute[,p9]), P10 = rowMeans(absolute[,p10]))
+
+#df for TLS proportions
+props_TLS <- as.data.frame(t(absolute_TLS))
+props_TLS <- tibble::rownames_to_column(props_TLS, "patient") #put rownames as first column
+props_TLS <- cbind(patient = props_TLS[, 1], props_TLS[, -1]/rowSums(props_TLS[, -1])) #calculate proportions
+props_TLS_long <- props_TLS %>% tidyr::gather(cells, prop, macrophages:Treg) %>% arrange(patient) #make data suitable for stacked barplot
+props_TLS_long$region <- "TLS"
+props_TLS_long$code <- paste(props_TLS_long$region, props_TLS_long$patient)
+
+df <- data.frame(mean = apply(props_TLS[,-1], MARGIN = 2, FUN = mean),
+                sd = apply(props_TLS[,-1], MARGIN = 2, FUN = sd),
+                n = nrow(props_TLS))
+
+write_xlsx(df %>% rownames_to_column, paste0(figdir, "DSP1_props_TLS_mean_sd_per_pt.xlsx"), )
+
+
+#make vectors for TIL patient aois
+ann2 <- subset(ann, region == "TIL")
+
+#Subset patients
+p1  <- rownames(ann2[which(ann2$patient == "P1"),])
+p2  <- rownames(ann2[which(ann2$patient == "P2"),])
+p3 <- rownames(ann2[which(ann2$patient == "P3"),])
+p4 <- rownames(ann2[which(ann2$patient == "P4"),])
+p5  <- rownames(ann2[which(ann2$patient == "P5"),])
+p6  <- rownames(ann2[which(ann2$patient == "P6"),])
+p7  <- rownames(ann2[which(ann2$patient == "P7"),])
+p8  <- rownames(ann2[which(ann2$patient == "P8"),])
+p9  <- rownames(ann2[which(ann2$patient == "P9"),])
+p10  <- rownames(ann2[which(ann2$patient == "P10"),])
+
+#df with absolute values of TIL
+absolute_TIL <- data.frame(P1 = rowMeans(absolute[,p1]), P2 = rowMeans(absolute[,p2]), P3 = rowMeans(absolute[,p3]), P4 = rowMeans(absolute[,p4]), P5 = rowMeans(absolute[,p5]), P6 = rowMeans(absolute[,p6]), P7 = rowMeans(absolute[,p7]), P8 = absolute[,p8], P9 = rowMeans(absolute[,p9]), P10 = rowMeans(absolute[,p10]))
+
+#df for TIL proportions
+props_TIL <- as.data.frame(t(absolute_TIL))
+props_TIL <- tibble::rownames_to_column(props_TIL, "patient") #put rownames as first column
+props_TIL <- cbind(patient = props_TIL[, 1], props_TIL[, -1]/rowSums(props_TIL[, -1])) #calculate proportions
+props_TIL_long <- props_TIL %>% tidyr::gather(cells, prop, macrophages:Treg) %>% arrange(patient) #make data suitable for stacked barplot
+props_TIL_long$region <- "TIL"
+props_TIL_long$code <- paste(props_TIL_long$region, props_TIL_long$patient)
+
+df <- data.frame(mean = apply(props_TIL[,-1], MARGIN = 2, FUN = mean),
+                sd = apply(props_TIL[,-1], MARGIN = 2, FUN = sd),
+                n = nrow(props_TIL))
+
+write_xlsx(df %>% rownames_to_column, paste0(figdir, "DSP1_props_TIL_mean_sd_per_pt.xlsx"))
+
+#merge the long props dfs
+props_CD45_long <- rbind(props_TLS_long, props_TIL_long)
+
+## Abundance dfs
+#make long dfs for abundance
+abs_TIL_long <- as.data.frame(t(absolute_TIL))
+abs_TIL_long <- tibble::rownames_to_column(abs_TIL_long, "patient") #put rownames as first column
+abs_TIL_long <-  tidyr::gather(abs_TIL_long, cells, freq, macrophages:Treg) 
+abs_TIL_long$region <- "TIL"
+abs_TIL_long$code <- paste(abs_TIL_long$region, abs_TIL_long$patient)
+
+abs_TLS_long <- as.data.frame(t(absolute_TLS))
+abs_TLS_long <- tibble::rownames_to_column(abs_TLS_long, "patient") #put rownames as first column
+abs_TLS_long <-  tidyr::gather(abs_TLS_long, cells, freq, macrophages:Treg) 
+abs_TLS_long$region <- "TLS"
+abs_TLS_long$code <- paste(abs_TLS_long$region, abs_TLS_long$patient)
+
+#merged abundance df
+abs_CD45_long <- rbind(abs_TLS_long, abs_TIL_long)
+```
+
+## Barplots: Proportional per patient TLS/TIL
+
+```{r CD45 proportions}
+aspect_ratio <- 0.5
+#TLS only
+ggplot(props_TLS_long, aes(x = patient, y = prop, fill = cells)) +
+  geom_bar(stat = "identity", position = "stack",  width = 0.9)+ 
+  scale_fill_manual(values= cols) +
+  theme_classic() +
+  labs(y = "proportions", x = "samples", title = "TLS")+
+  theme_default() +
+  annotate("rect", xmin =0.5, xmax = 6.5, ymin = -0.01, ymax = -0.04, fill = "#F0A0FF", color = "grey",) + #gc
+  annotate("rect", xmin =6.5, xmax = 10.5, ymin = -0.01, ymax = -0.04, fill = "#FCD800", color = "grey") #pm
+
+ggsave("DSP1_stacked barplot TLS average of patient.pdf", device = "pdf", height = 5, width = 7, path = figdir)
+
+#TIL only
+ggplot(props_TIL_long, aes(x = patient, y = prop, fill = cells)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.9)+ 
+  scale_fill_manual(values= cols) +
+  theme_classic() +
+  labs(y = "proportions", x = "samples", title = "TIL")+
+  theme_default() +
+  annotate("rect", xmin =0.5, xmax = 6.5, ymin = -0.01, ymax = -0.04, fill = "#F0A0FF", color = "grey",) + #gc
+  annotate("rect", xmin =6.5, xmax = 10.5, ymin = -0.01, ymax = -0.04, fill = "#FCD800", color = "grey")#pm
+
+ggsave("DSP1_stacked barplot TIL average of patient.pdf", device = "pdf", height = 5, width = 7, path = figdir)
+```
+
+## Abundance/proportions per roi
+make dfs with all data (no means)
+```{r df no means, include = F}
+absolute <- pmin(t(res$beta))  
+absolute %>% as.data.frame %>% arrange(rownames(absolute))
+
+#TLS
+ann2 <- subset(ann, region == "TLS")
+absolute_TLS_all <- absolute[,rownames(ann2)]
+colnames(absolute_TLS_all) <- ann2$name
+props_TLS_all <- as.data.frame(t(absolute_TLS_all))
+props_TLS_all <- tibble::rownames_to_column(props_TLS_all, "name") #put rownames as first column
+props_TLS_all <- cbind(name = props_TLS_all[, 1], props_TLS_all[, -1]/rowSums(props_TLS_all[, -1])) #calculate proportions
+props_TLS_all_long <- props_TLS_all %>% tidyr::gather(cells, prop, macrophages:Treg) %>% arrange(name)
+rownames(ann2) <- ann2$name
+props_TLS_all_long <- left_join(props_TLS_all_long, ann2, by = "name")
+
+df <- data.frame(mean = apply(props_TLS_all[,-1], MARGIN = 2, FUN = mean), 
+                 sd = apply(props_TLS_all[,-1], MARGIN = 2, FUN = sd),
+                 n = nrow(props_TLS_all))
+
+#saveRDS(props_TLS_all_long, file = "DSP-TLS/Combined/props_TLS_DSP1.RDS")
+write_xlsx(df  %>% rownames_to_column, paste0(figdir, "DSP1_props_TLS_mean_sd_per_aoi.xlsx"))
+
+#TIL
+ann2 <- subset(ann, region == "TIL")
+absolute_TIL_all <- absolute[,rownames(ann2)]
+colnames(absolute_TIL_all) <- ann2$name
+props_TIL_all <- as.data.frame(t(absolute_TIL_all))
+props_TIL_all <- tibble::rownames_to_column(props_TIL_all, "name") #put rownames as first column
+props_TIL_all <- cbind(name = props_TIL_all[, 1], props_TIL_all[, -1]/rowSums(props_TIL_all[, -1])) #calculate proportions
+props_TIL_all_long <- props_TIL_all %>% tidyr::gather(cells, prop, macrophages:Treg) %>% arrange(name)
+rownames(ann2) <- ann2$name
+props_TIL_all_long <- left_join(props_TIL_all_long, ann2, by = "name")
+
+df <- data.frame(mean = apply(props_TIL_all[,-1], MARGIN = 2, FUN = mean), 
+                 sd = apply(props_TIL_all[,-1], MARGIN = 2, FUN = sd),
+                 n = nrow(props_TIL_all))
+
+
+#saveRDS(props_TIL_all_long, file = "DSP-TLS/Combined/props_TIL_DSP1.RDS")
+write_xlsx(df  %>% rownames_to_column, paste0(figdir, "DSP1_props_TIL_mean_sd_per_aoi.xlsx"))
+```
+
+## Barplots: proportions spatial decon all rois
+TLS
+```{r}
+#plotting time
+ggplot(props_TLS_all_long, aes(x = name, y = prop, fill = cells)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.9)+ 
+  ggtitle("TLS") +
+  scale_fill_manual(values= cols)+
+  theme_classic() +
+  theme_default()+
+  labs(y = "proportions", x = "samples") +
+  annotate("rect", xmin =0.5, xmax = 6.5, ymin = -0.01, ymax = -0.03, fill = "#FB8072", color = "grey") + #p1
+  annotate("rect", xmin =6.5, xmax = 12.5, ymin = -0.01, ymax = -0.03, fill = "#80B1D3", color = "grey") + #p2
+  annotate("rect", xmin =12.5, xmax = 18.5, ymin = -0.01, ymax = -0.03, fill = "#FDB462", color = "grey") + #p3
+  annotate("rect", xmin =18.5, xmax = 25.5, ymin = -0.01, ymax = -0.03, fill = "#B3DE69", color = "grey") + #p4
+  annotate("rect", xmin =25.5, xmax = 31.5, ymin = -0.01, ymax = -0.03, fill = "#FCCDE5", color = "grey") + #p5
+  annotate("rect", xmin =31.5, xmax = 37.5, ymin = -0.01, ymax = -0.03, fill = "#D9D9D9", color = "grey") + #p6
+  annotate("rect", xmin =37.5, xmax = 41.5, ymin = -0.01, ymax = -0.03, fill = "#BC80BD", color = "grey") + #p7
+  annotate("rect", xmin =41.5, xmax = 45.5, ymin = -0.01, ymax = -0.03, fill = "#CCEBC5", color = "grey") + #p8
+  annotate("rect", xmin =45.5, xmax = 48.5, ymin = -0.01, ymax = -0.03, fill = "#FFED6F", color = "grey") + #p9
+  annotate("rect", xmin =48.5, xmax = 53.5, ymin = -0.01, ymax = -0.03, fill = "#A6CEE3", color = "grey") + #p10
+  annotate("rect", xmin =0.5, xmax = 37.5, ymin = -0.04, ymax = -0.06, fill = "#F0A0FF", color = "grey") + #gc
+  annotate("rect", xmin =37.5, xmax = 53.5, ymin = -0.04, ymax = -0.06, fill = "#FCD800", color = "grey") + #pm
+  annotate("rect", xmin =0.5, xmax = 53.5, ymin = -0.07, ymax = -0.09, fill = "#4DAF4A", color = "grey") #tls
+
+ggsave("DSP1_stacked barplot TLS individual aois.pdf", device = "pdf", height = 5, width = 7, path = figdir)
+
+```
+
+TIL
+```{r}
+#plotting time
+ggplot(props_TIL_all_long, aes(x = name, y = prop, fill = cells)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.9)+ 
+  scale_fill_manual(values= cols)+
+  ggtitle("TIL") +
+  theme_classic() +
+  theme_default() +
+  labs(y = "proportions", x = "samples") +
+  annotate("rect", xmin =0.5, xmax = 2.5, ymin = -0.01, ymax = -0.03, fill = "#FB8072", color = "grey") + #p1
+  annotate("rect", xmin =2.5, xmax = 4.5, ymin = -0.01, ymax = -0.03, fill = "#80B1D3", color = "grey") + #p2
+  annotate("rect", xmin =4.5, xmax = 6.5, ymin = -0.01, ymax = -0.03, fill = "#FDB462", color = "grey") + #p3
+  annotate("rect", xmin =6.5, xmax = 9.5, ymin = -0.01, ymax = -0.03, fill = "#B3DE69", color = "grey") + #p4
+  annotate("rect", xmin =9.5, xmax = 11.5, ymin = -0.01, ymax = -0.03, fill = "#FCCDE5", color = "grey") + #p5
+  annotate("rect", xmin =11.5, xmax = 13.5, ymin = -0.01, ymax = -0.03, fill = "#D9D9D9", color = "grey") + #p6
+  annotate("rect", xmin =13.5, xmax = 15.5, ymin = -0.01, ymax = -0.03, fill = "#BC80BD", color = "grey") + #p7
+  annotate("rect", xmin =15.5, xmax = 16.5, ymin = -0.01, ymax = -0.03, fill = "#CCEBC5", color = "grey") + #p8
+  annotate("rect", xmin =16.5, xmax = 18.5, ymin = -0.01, ymax = -0.03, fill = "#FFED6F", color = "grey") + #p9
+  annotate("rect", xmin =18.5, xmax = 20.5, ymin = -0.01, ymax = -0.03, fill = "#A6CEE3", color = "grey") + #p10
+  annotate("rect", xmin =0.5, xmax = 12.5, ymin = -0.04, ymax = -0.06, fill = "#F0A0FF", color = "grey") + #gc
+  annotate("rect", xmin =12.5, xmax = 20.5, ymin = -0.04, ymax = -0.06, fill = "#FCD800", color = "grey") + #pm
+  annotate("rect", xmin =0.5, xmax = 20.5, ymin = -0.07, ymax = -0.09, fill = "#377EB8", color = "grey") #TIL
+
+ggsave("DSP1_stacked barplot TIL individual aois.pdf", device = "pdf",  height = 5, width = 3.5, path = figdir)
+
+```
+
+# TLS maturity
+
+```{r}
+#create a df with custom aoi names
+maturity_genes <- c("MS4A1", "CD3E", "FCER2", "CR2", "CXCL13", "BCL6") #"CD180", "GATA2", "EP300","PTCRA"
+
+#aturity_genes <- c("MS4A1", "CD3E", "FCER2", "CR2", "CXCL13", "BCL6", "CR1","CD38", "CD19",  "CXCR5")
+
+#test <- c("HLA-DMA"  ,    "HLA-DMB"   ,   "HLA-DOA"   ,   "HLA-DOB"   ,   "HLA-DPA1"  ,   "HLA-DPB1"   ,  "HLA-DRA"  ) 
+#log2(assayDataElement(target_Data[test,active_aois_TLS], elt = "q_norm")) %>% View
+
+#are these in the panel?
+in_panel <- subset(genes, genes %in% maturity_genes)
+setdiff(maturity_genes, in_panel)
+
+mature_data <- log2(assayDataElement(target_Data[in_panel,active_aois_TLS], elt = "q_norm"))
+order <- sort(colnames(mature_data ))
+mature_data  <- mature_data [, order] #reorder columns alphabetically
+colnames(mature_data ) <- ann$name[which(ann$region == "TLS")]
+ann_TLS <- subset(ann, region == "TLS")
+rownames(ann_TLS) <- ann_TLS$name
+
+```
+
+
+```{r fig.width=15, fig.height=10}
+#subset for cell whose means > 0.01
+means <- colMeans(props_TLS_all[,-1])
+means <- names(means[which(means > 0.02)])
+
+df <- props_TLS_all %>% 
+  column_to_rownames("name") %>% 
+  select(means) %>% t
+
+maturity_matrix <- rbind(mature_data, df)
+
+mature_TLS_hm<- pheatmap(maturity_matrix ,
+         scale = "row", # additional normalization by row 
+         angle_col = 90,
+         main = "TLS maturity", 
+         cutree_rows = 3, cutree_cols = 5,
+         show_rownames = T, show_colnames = T,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("#003399", "#FFFFE6", "#CC0000"))(120),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue),
+         cellheight = 15, cellwidth = 15,
+         labels_col = ann$name[which(ann$region == "TLS")],
+         annotation_col = ann_TLS[, c("tissue", "patient", "region")])
+
+clusters <- cutree(mature_TLS_hm$tree_col, k = 5)
+table(clusters)
+ann_TLS$maturity <- clusters
+ann_TLS$maturity[which(ann_TLS$maturity == 1)] <- "SF-like TLS"
+ann_TLS$maturity[which(ann_TLS$maturity == 2)] <- "early TLS"
+ann_TLS$maturity[which(ann_TLS$maturity == 3)] <- "SF-like TLS"
+ann_TLS$maturity[which(ann_TLS$maturity == 4)] <- "PF-like TLS"
+ann_TLS$maturity[which(ann_TLS$maturity == 5)] <- "LA"
+
+ann_TLS$maturity2 <- NA
+ann_TLS$maturity2[which(ann_TLS$maturity %in% c("LA", "early TLS"))] <- "non-mature"
+ann_TLS$maturity2[which(ann_TLS$maturity %in%  c("PF-like TLS", "SF-like TLS"))] <- "mature"
+
+#add maturity to target_Data
+pData(target_Data)$maturity <- NA
+pData(target_Data)$maturity[which(pData(target_Data)$region == "TLS")] <- ann_TLS$maturity
+
+pData(target_Data)$maturity2 <- NA
+pData(target_Data)$maturity2[which(pData(target_Data)$region == "TLS")] <- ann_TLS$maturity2
+
+ann$maturity <- pData(target_Data)$maturity
+ann$maturity2 <- pData(target_Data)$maturity2
+
+ann_TLS$IHC_mat <- pData(target_Data)$IHC_is_mature[which(pData(target_Data)$region == "TLS")]
+
+mature_TLS_hm<- pheatmap(maturity_matrix ,
+         scale = "row", # additional normalization by row 
+         angle_col = 90,
+         #main = "TLS maturity", 
+         cutree_rows = 3, cutree_cols = 5,
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("#003399", "#FFFFE6", "#CC0000"))(120),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity, ann_c_maturity2),
+         cellheight = 15, cellwidth = 15,
+         labels_col = ann$name[which(ann$region == "TLS")],
+         annotation_col = ann_TLS[, c("maturity2", "maturity", "tissue", "patient", "region")])
+
+save_pheatmap_pdf(x = mature_TLS_hm, file = paste0(figdir,"DSP1_maturity_TLS_hm_final.pdf"))
+
+```
+# Scaled heatmaps
+```{r }
+#TIL
+scaled_TIL <- subset(res$beta, rownames(res$beta) %in% active_aois_TIL)
+min <- min(scaled_TIL[scaled_TIL > 0])
+scaled_TIL <- sweep(scaled_TIL, 1, pmax(apply(scaled_TIL, 1, max), min), "/")
+scaled_TIL <- scaled_TIL[,-c(2,10:12, 13:15)] #keep subsets of interest
+
+#assign names to the df
+scaled_TIL <- as.data.frame(scaled_TIL) %>% arrange(rownames(scaled_TIL))
+rownames(scaled_TIL) <- ann[which(ann$region == "TIL"),]$name
+
+ann_TIL <- subset(ann, region == "TIL")
+rownames(ann_TIL) <- ann_TIL$name
+
+#TLS
+scaled_TLS <- subset(res$beta, rownames(res$beta) %in% active_aois_TLS)
+min <- min(scaled_TLS[scaled_TLS > 0])
+scaled_TLS <- sweep(scaled_TLS, 1, pmax(apply(scaled_TLS, 1, max), min), "/")
+scaled_TLS <- scaled_TLS[,-c(2, 10:12, 13:15)] #keep subsets of interest
+
+#assign names to the df
+scaled_TLS <- as.data.frame(scaled_TLS) %>% arrange(rownames(scaled_TLS))
+rownames(scaled_TLS) <- ann[which(ann$region == "TLS"),]$name
+
+```
+
+
+## Scaled heatmaps of TLS
+Scaled heatmap of TLS
+```{r fig.height=10, fig.width=15}
+scaled_TLS_heatmap <- pheatmap(t(scaled_TLS), 
+         main = "Scaled TLS",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 3, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = F,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         annotation_col = ann_TLS[, c("maturity", "tissue","patient", "region")])
+
+#define clustermembership scaled TLS
+clusters <- cutree(scaled_TLS_heatmap$tree_col, k = 3)
+ann_TLS$clusters <- clusters
+ann_TLS$clusters[which(ann_TLS$clusters == 1)] <- "B naive enriched"
+ann_TLS$clusters[which(ann_TLS$clusters == 2)] <- "B memory enriched"
+ann_TLS$clusters[which(ann_TLS$clusters == 3)] <- "CD4 T memory enriched"
+
+#add membership to target_Data
+pData(target_Data)$clusters <- NA
+pData(target_Data)$clusters[which(pData(target_Data)$region == "TLS")] <- ann_TLS$clusters
+ann$clusters <- pData(target_Data)$clusters
+
+save_pheatmap_pdf(x = scaled_TLS_heatmap, file = paste0(figdir,"DSP1_scaled_TLS_cellprops_hm.pdf")) 
+```
+
+```{r fig.height=15, fig.width=20}
+scaled_TLS_heatmap <- pheatmap(t(scaled_TLS), 
+         main = "Scaled TLS",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 3, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = F,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         annotation_col = ann_TLS[, c("maturity","tissue", "patient","region")])
+
+save_pheatmap_pdf(x = scaled_TLS_heatmap, file = paste0(figdir,"DSP1_scaled_TLS_cellprops_with cellbased clusters_hm.pdf")) 
+
+```
+
+## Scaled heatmaps of TIL
+```{r fig.height=10, fig.width=15}
+scaled_TIL_heatmap <- pheatmap(t(scaled_TIL), 
+         main = "Scaled TIL",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 3, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = F,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue),
+         annotation_col = ann_TIL[, c("tissue", "patient","region")])
+
+#define clustermembership scaled TIL
+clusters <- cutree(scaled_TIL_heatmap$tree_col, k = 3)
+table(clusters)
+ann_TIL$clusters <- clusters
+ann_TIL$clusters[which(ann_TIL$clusters == 1)] <- "CD8 T memory enriched"
+ann_TIL$clusters[which(ann_TIL$clusters == 2)] <- "macrophage enriched"
+ann_TIL$clusters[which(ann_TIL$clusters == 3)] <- "B memory enriched"
+
+ann_c_clusters_TIL <- list("clusters" = c("CD8 T memory enriched" = "#5757F9" , "B memory enriched" = "#A0FFA0", "macrophage enriched" = "#C0B57B"))
+
+#add clusters to target_Data
+pData(target_Data)$clusters[which(pData(target_Data)$region == "TIL")] <- ann_TIL$clusters
+ann$clusters[which(ann$region == "TIL")] <- pData(target_Data)$clusters[which(pData(target_Data)$region == "TIL")]
+
+save_pheatmap_pdf(x = scaled_TIL_heatmap, file = paste0(figdir,"DSP1_scaled_TIL_cellprops_hm.pdf")) 
+
+```
+
+```{r fig.height=10, fig.width=15}
+scaled_TIL_heatmap <- pheatmap(t(scaled_TIL), 
+         main = "Scaled TIL",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 3, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = T,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue, ann_c_clusters_TIL),
+         annotation_col = ann_TIL[, c("clusters", "tissue", "patient","region")])
+
+save_pheatmap_pdf(x = scaled_TIL_heatmap, file = paste0(figdir,"DSP1_scaled_TIL_cellprops_with cellbased clusters_hm.pdf")) 
+```
+
+# Boxplot subsets per maturity state
+
+```{r fig.width = 10}
+my_comparisons <- list(c("LA", "early TLS"), c("LA", "PF-like TLS"), c("LA", "SF-like TLS"),
+                        c("early TLS", "PF-like TLS"), c("early TLS", "SF-like TLS"),
+                        c("PF-like TLS", "SF-like TLS"))
+
+coi <- c("macrophages", "B naive", "B memory", "plasma cells", "CD4 T naive", "CD4 T memory", "CD8 T naive",
+         "CD8 T memory", "classical monocytes", "non-classical monocytes", "Treg")
+
+mat <- ann_TLS %>% select(name, maturity, maturity2)
+
+props_TLS_all_long %<>% left_join(mat, by = "name")
+
+stat_test <- props_TLS_all_long %>%
+  filter(cells %in% coi) %>%
+  mutate(maturity = factor(maturity, 
+                           levels = c("LA", "early TLS", "PF-like TLS", "SF-like TLS"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages", 
+                                   "classical monocytes", "non-classical monocytes"))) %>%
+  group_by(cells) %>%
+  pairwise_wilcox_test(prop ~ maturity, 
+                       p.adjust.method = "fdr", 
+                       comparisons = my_comparisons) %>%
+  mutate(p.symbol = p.adj.signif) 
+
+stat_test$p.symbol[stat_test$p.symbol == "****"] <- "***" # maxsignificance set to p < 0.001
+
+props_TLS_all_long %>%  
+  filter(cells %in% coi) %>%
+  mutate(maturity = factor(maturity, 
+                           levels = c("LA", "early TLS", "PF-like TLS", "SF-like TLS"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages", 
+                                   "classical monocytes", "non-classical monocytes"))) %>%
+  ggplot(aes(x = cells, y = prop)) +
+    geom_boxplot(aes(fill = maturity),
+                 position = position_dodge(0.8), 
+                 width = 0.6, 
+                 fatten = 1) +
+    scale_fill_manual(values = ann_c_maturity[[1]][1:4]) +
+    stat_pvalue_manual(stat_test %>% 
+                         add_x_position(x = "cells") %>% 
+                         add_y_position(step.increase = 0.06), 
+                     hide.ns = T,
+                     label = "p.symbol", 
+                     tip.length = 0.01, label.size = 6) +
+    theme_classic() +
+    theme_bp()+
+    ylab("proportions") +
+    scale_x_discrete(labels = label_wrap(10))+
+    ylim(-0.05, 1)
+
+table(ann$maturity[which(ann$region == "TLS")])
+
+ggsave("DSP1_boxplots maturity state per pt_all states.pdf", device = "pdf", height = 5, width = 11, path = figdir)
+
+###
+
+stat_test <- props_TLS_all_long %>%
+  filter(cells %in% coi) %>%
+  mutate(maturity2 = factor(maturity2, 
+                           levels = c("non-mature", "mature"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages", 
+                                   "classical monocytes", "non-classical monocytes"))) %>%
+  group_by(cells) %>%
+  pairwise_wilcox_test(prop ~ maturity2, 
+                       p.adjust.method = "fdr") %>%
+  mutate(p.symbol = p.adj.signif) 
+
+stat_test$p.symbol[stat_test$p.symbol == "****"] <- "***" # maxsignificance set to p < 0.001
+
+props_TLS_all_long %>%  
+  filter(cells %in% coi) %>%
+  mutate(maturity2 = factor(maturity2, 
+                           levels = c("non-mature", "mature"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages", 
+                                   "classical monocytes", "non-classical monocytes"))) %>%
+  ggplot(aes(x = cells, y = prop)) +
+    geom_boxplot(aes(fill = maturity2),
+                 position = position_dodge(0.8), 
+                 width = 0.6, 
+                 fatten = 1) +
+    scale_fill_manual(values = ann_c_maturity2[[1]][1:4]) +
+    stat_pvalue_manual(stat_test %>% 
+                         add_x_position(x = "cells") %>% 
+                         add_y_position(step.increase = 0.06), 
+                     hide.ns = T,
+                     label = "p.symbol", 
+                     tip.length = 0.01, label.size = 6) +
+    theme_classic() +
+    theme_bp()+
+    ylab("proportions") +
+    scale_x_discrete(labels = label_wrap(10))+
+    ylim(-0.05, 1)
+
+ggsave("DSP1_boxplots maturity state per pt_matVSnotmat.pdf", device = "pdf", height = 5, width = 11, path = figdir)
+
+```
+
+
+## correlation maturity IHC and DSP
+
+```{r}
+df <- as.data.frame(pData(target_Data)) %>% 
+  filter(region == "TLS") %>%
+  select(name, IHC_maturity, IHC_is_mature, maturity2, maturity) %>%
+  #mutate(maturity2 = ifelse(maturity2 =="mature", "yes", "no" )) %>%
+  na.omit
+
+table(df$IHC_is_mature, df$maturity2)
+table(df$IHC_maturity, df$maturity)
+table(df$maturity)
+
+```
+
+# Pathways: TIL vs TLS
+## Load files
+```{r load data}
+pathwayfiles = c("LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx",
+                 "LBL-10244-03_nCounter_Vantage_RNA_Adaptive_Immunity_Panel.xlsx", 
+                 "LBL-10248-03_nCounter_Vantage_RNA_Cellular_Profiling_Panel.xlsx",
+                 "LBL-10249-03_nCounter_Vantage_RNA_Innate_Immunity_Panel.xlsx",
+                 "LBL-10358-06_nCounter_Vantage_3D_RNA_Protein_Immune_Cell_Profiling_Assay_Probe_List_CS.xlsx",
+                 "LBL-10809-03_GeoMx_Cancer_Transcriptome_Atlas_Probe_List.xlsx",
+                 "LBL-C0269-03_nCounter-Human-Immunology-V2-Panel-Gene-List.xlsx",
+                 "Nanostring immune exhaustion gene list.xlsx")
+
+#vector is also order in list
+nameextenstions = c("PanCancer_Immune_Profiling_Panel",
+                    "RNA_Adaptive_Immunity_Panel",
+                    "RNA_Cellular_Profiling_Panel",
+                    "RNA_Innate_Immunity_Panel",
+                    "RNA_Protein_Immune_Cell_Profiling_Assay",
+                    "GeoMx_Cancer_Transcriptome_Atlas",
+                    "Human-Immunology-V2-Panel",
+                    "Nanostring immune exhaustion gene list")
+
+relevantslides = c("Immune Response Categories",
+                   "Annotations",
+                   "Annotations",
+                   "Annotations",
+                   "Immune Response Categories",
+                   "Annotations",
+                   "Annotations",
+                   "Functional Themes")
+
+
+pathwaylists = list()
+for (i in 1:length(pathwayfiles)){
+  df = data.frame(read_xlsx(paste("DSP-TLS/Panels/", pathwayfiles[i], sep=''), sheet=relevantslides[i], skip=1, col_types="text"))
+  ncol = dim(df)[2] - 2
+  pathways = list()
+  for (n in 1:ncol){
+    Col = df[,n+2]
+    genes = Col%in%'+'
+    pathways[[n]] = df[genes,1]
+  }
+  names(pathways) <- paste(names(df)[3:(ncol+2)])
+  names(pathways) <- gsub(".", " ", names(df)[3:(ncol+2)], fixed = T)
+
+  pathwaylists[[i]] <- pathways
+}
+
+names(pathwaylists) <- nameextenstions
+
+```
+
+
+``` {r convert to correct format}
+genes <- rownames(exprs(target_Data))
+
+#import different categories from CTApanel
+categories <- read_xlsx("DSP-TLS/Panels/LBL-10809-03_GeoMx_Cancer_Transcriptome_Atlas_Probe_List.xlsx", sheet = "Categories") %>% as.data.frame
+categories <- tidyr::gather(categories, "panel","pathways")
+categories <- subset(categories, pathways != "NA")
+categories <- arrange(categories, pathways)
+
+#make a list
+msigdbr_list <-  pathwaylists[["GeoMx_Cancer_Transcriptome_Atlas"]]
+
+names <- read_xlsx("DSP-TLS/Panels/CTA-panel-names.xlsx") %>% as.data.frame
+names(msigdbr_list) <- names$new_names #correct the names
+
+msigdbr_list<- lapply(msigdbr_list, function(x) x[x %in% genes])
+msigdbr_list <- msigdbr_list[lapply(msigdbr_list, length) > 3]
+
+```
+
+add extra pathways
+```{r}
+#Huang X, Nat. Com. 2023
+gene_panels <- read_xlsx("General/Suppl_gene signatures.xlsx")
+gene_list <- list()
+
+for (sig in 1:ncol(gene_panels)) {
+  
+  gene_list[[colnames(gene_panels)[sig]]] <- gene_panels[,sig] %>% na.omit %>% unlist %>% as.vector
+  
+}
+
+gene_list <- lapply(gene_list, function(x) x[x %in% genes])
+gene_list <- gene_list [lapply(gene_list, length) > 3]
+
+```
+
+## pathways
+Subset immune pathways
+```{r}
+immune_panels <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Adaptive Immunity" | categories$panel == "Innate Immunity" | categories$panel == "Immune Response"])
+
+#add from other CTA panels
+other <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Cell Function"])
+immune_panels["Apoptosis"] <- other["Apoptosis"]
+immune_panels["Phagocytosis"] <- other["Phagocytosis"]
+
+other <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Signaling Pathways"])
+immune_panels["TGF-beta Signaling"] <- other["TGF-beta Signaling"]
+immune_panels["VEGF Signaling"] <- other["VEGF Signaling"]
+
+#add from Huang X, Nat. Com. 2023
+immune_panels["M1-like activation"] <- gene_list["M1"]
+immune_panels["M2-like activation"] <- gene_list["M2"]
+immune_panels["Pro-inflammation"] <- gene_list["Pro-inflammatory"]
+immune_panels["Anti-inflammation"] <- gene_list["Anti-inflammatory"]
+immune_panels["Cytotoxicity"] <- gene_list["Cytotoxic"] #has more genes
+immune_panels["Proliferation"] <- gene_list["Proliferative"]
+
+immune_panels["Cancer Antigens"] <- NULL
+
+pw_gene_df<-data.frame(Pathway = names(immune_panels))
+pw_gene_df$genes<-immune_panels
+```
+
+Run GSVSA
+```{r run_gsva, warning = F}
+#calculate enrichment of panels
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = immune_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+
+#subset target_data based on the genesets
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+#make a new df with only the expression data of the genesetobject
+pw_matrix<-assayDataElement(geneSetObj, elt = "exprs")
+
+```
+
+
+## Non-DE pathways
+
+```{r, fig.height=15, fig.width=30}
+#TLS
+im_pathways_TLS <- pheatmap(ssgsea_results[,active_aois_TLS],
+           scale = "row", 
+           cluster_rows = F,
+           show_rownames = TRUE, show_colnames = FALSE,
+           annotation_names_row = F,
+           gaps_row = c(12, 27),
+           fontsize_row = 11,
+           clustering_method = "complete",
+           clustering_distance_cols = "correlation",
+           clustering_distance_rows = "correlation",
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           main = "Pathway analysis TLS (non-DE)",
+           annotation_col = pData(target_Data)[, c("maturity","tissue","patient", "region")])
+
+save_pheatmap_pdf(x = im_pathways_TLS, file = paste0(figdir,"DSP1_TLS_non_DE_im_pathways_hm.pdf")) 
+
+#TIL
+im_pathways_TIL <- pheatmap(ssgsea_results[,active_aois_TIL],
+           scale = "row", 
+           cluster_rows = F,
+           show_rownames = TRUE, show_colnames = FALSE,
+           annotation_names_row = F,
+           gaps_row = c(12, 27),
+           fontsize_row = 11,
+           clustering_method = "complete",
+           clustering_distance_cols = "correlation",
+           clustering_distance_rows = "correlation",
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           main = "Pathway analysis TIL (non-DE)",
+           annotation_col = pData(target_Data)[, c("tissue","patient", "region")])
+
+save_pheatmap_pdf(x = im_pathways_TIL, file = paste0(figdir,"DSP1_TIL_non_DE_im_pathways_hm.pdf")) 
+  
+```
+
+```{r fig.width=20, fig.height=15}
+im_pathways_TLS <- pheatmap(ssgsea_results[,active_aois_TLS],
+           scale = "row", 
+           cluster_rows = T,
+           cutree_cols = 4, cutree_rows = 3,
+           show_rownames = TRUE, show_colnames = FALSE,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           clustering_method = "complete",
+           #clustering_distance_cols = "correlation",
+           #clustering_distance_rows = "correlation",
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           #main = "Pathway analysis TLS (non-DE)",
+           annotation_col = pData(target_Data)[, c("maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = im_pathways_TLS, file = paste0(figdir,"DSP1_TLS_non_DE_im_pathways_with rowclust_hm.pdf")) 
+```
+
+# Chemokine signature
+In all CD45 regions
+```{r unsupervised chemokine, fig.height=10, fig.width=20}
+genes <- rownames(exprs(target_Data))
+
+# select genes from 12-gene cytokine signature
+cyto.sig.all <- c("CCL19", "CCL21", "CXCL13", "CCL5", "CXCL9", "CXCL10", 
+                  "CCL3", "CCL4", "CXCL11", "CCL2", "CCL18", "CCL8")
+cyto.sig <- subset(genes, genes %in% cyto.sig.all)
+
+# check which genes are present in dataset
+setdiff(cyto.sig.all, cyto.sig)
+
+#create a CD45 df with custom aoi names
+data <- log2(assayDataElement(target_Data[cyto.sig,active_aois_CD45], elt = "q_norm"))
+order <- sort(colnames(data))
+data <- data[, order] #reorder columns alphabetically
+colnames(data) <- ann$name[which(ann$segment == "CD45")]
+ann_CD45 <- subset(ann, segment == "CD45")
+rownames(ann_CD45) <- ann_CD45$name
+
+#CD45
+cytokine_signature_CD45 <- pheatmap(data,
+         scale = "row", 
+         angle_col = 90,
+         main = "Cytokine signature of CD45 segment",
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         cutree_cols = 3,cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         annotation_colors = c(ann_c_TLS_TIL, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         annotation_col = ann_CD45[, c("maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = cytokine_signature_CD45, file = paste0(figdir,"DSP1_cytokine_signature_CD45_hm.pdf")) 
+
+#TLS
+cytokine_signature_TLS <- pheatmap(log2(assayDataElement(target_Data[cyto.sig,active_aois_TLS], elt = "q_norm")),
+         scale = "row", 
+         angle_col = 90,
+         main = "Cytokine signature of TLS",
+         show_rownames = T, show_colnames = F,
+         clustering_method = "average",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         cutree_cols = 2,cutree_rows = 1,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         annotation_colors = c( ann_c_pt, ann_c_tissue, ann_c_maturity, ann_c_TLS, ann_c_maturity2),
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         annotation_col = pData(target_Data)[, c("maturity2", "maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = cytokine_signature_TLS, file = paste0(figdir,"DSP1_cytokine_signature_TLS_hm.pdf"))  
+
+#all regions
+cytokine_signature_regions <- pheatmap(log2(assayDataElement(target_Data[cyto.sig,], elt = "q_norm")),
+         scale = "row",
+         angle_col = 90,
+         main = "Cytokine signature of all regions",
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         cutree_cols = 4,cutree_rows = 1,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         annotation_colors = c(ann_c_pt, ann_c_tissue, ann_c_region, ann_c_maturity, ann_c_maturity2),
+         cellheight = 12, cellwidth = 12,
+         border_color = "grey",
+         annotation_col = pData(target_Data)[, c("maturity2", "maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = cytokine_signature_regions, file = paste0(figdir,"DSP1_cytokine_signature_regions_hm.pdf")) 
+```
+
+
+
+# Correlation TLS maturity and TIL
+prepare df for TLS
+```{r mature_pt}
+#assign maturity status per patient
+ann_TLS$patient <- factor(ann_TLS$patient, levels=c('P1','P2','P3','P4','P5','P6','P7','P8','P9','P10'))
+mature_pt <- unclass(table(ann_TLS$patient, ann_TLS$maturity))
+times <- unclass(table(ann_TLS$patient))
+
+a <- colnames(mature_pt)[apply(mature_pt,1,which.max)] #select most common state per pt
+b <- rep(a, times = times) #repeat state times the number of samples per patient
+
+ann_TLS$mature_pt <- b 
+ann$mature_pt <- NA
+ann$mature_pt[which(ann$region == "TLS")] <- b
+
+#merge with props_TLS
+props_TLS$mature_pt <- a
+props_TLS$region <- "TLS" 
+
+###
+table(ann$patient, ann$maturity2)
+mature <- c("P1","P2", "P5", "P6")
+not_mature <- c("P3", "P7", "P9")
+
+ann$mature_pt2 <- NA
+ann$mature_pt2[which(ann$patient %in% mature)] <- "mature"
+ann$mature_pt2[which(ann$patient %in% not_mature)] <- "non-mature"
+
+ann_TLS <- subset(ann, region == "TLS")
+ann_TLS$patient <- factor(ann_TLS$patient, levels=c('P1','P2','P3','P4','P5','P6','P7','P8','P9','P10'))
+
+##
+
+pData(target_Data)$mature_pt <- ann$mature_pt
+pData(target_Data)$mature_pt2 <- ann$mature_pt2
+pData(target_Data)$mature_pt2[which(pData(target_Data)$patient %in% c("P4", "P8", "P10"))] <- "ambiguous"
+```
+
+
+
+# Maturity selection figure
+```{r warning = F}
+mat_selection <- as.data.frame(unclass(table(ann_TLS$patient, ann_TLS$maturity))) %>%
+  mutate(mat_pt = ann_TLS %>% 
+          distinct(patient, mature_pt) %>% 
+          select(mature_pt)) %>%
+          select("LA", "early TLS", "PF-like TLS", "SF-like TLS", "mat_pt")
+
+#in df
+mat_selection$mat_pt2 <- NA
+mat_selection$mat_pt2[which(rownames(mat_selection) %in% mature)] <- "mature"
+mat_selection$mat_pt2[which(rownames(mat_selection) %in% not_mature)] <- "non-mature"
+mat_selection$mat_pt2[which(rownames(mat_selection) %in% c("P4", "P8", "P10"))] <- "ambiguous"
+
+levels <-  c( "ambiguous", "mature", "non-mature")
+col_scale <- brewer.pal(max(mat_selection[,1:4]), "Greens")
+ann_c_maturity2 <- list("mat_pt2" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA", "ambiguous" = "white"))
+
+row_ann <- HeatmapAnnotation(mat_pt = as.matrix(mat_selection[,6]), 
+                             which = "row",
+                             show_annotation_name = F,
+                             col = list(mat_pt  = ann_c_maturity2[[1]],
+                               annotation_legend_param = list(mat_pt = list(
+                               title = "assigned state", 
+                               title_position = "topleft",
+                               labels = levels))),
+                            width = unit(5, "mm"))
+
+pdf(file = paste0(figdir, "DSP1_maturity_pt_assignment.pdf"), height = 5, width = 3.5)
+
+Heatmap(mat_selection[1:4], 
+        col = col_scale, 
+        name = "no. of states",
+        cluster_rows = F, 
+        cluster_columns = F, 
+        column_names_side = "top", 
+        row_names_side = "right", 
+        right_annotation = row_ann)
+
+dev.off()
+
+```
+
+# IHC TILs boxplot / mature_pt
+
+```{r}
+TIL_table <- read_xlsx("cohort1/20231027_TLS_IHC_analyse.xlsx", sheet = "tumor_sum" )
+TIL_table$patient <- factor(TIL_table$patient, levels = unique(ann$patient))
+TIL_table$mature_pt <- factor(TIL_table$mature_pt, levels = c( "ambiguous", "non-mature", "mature"))
+
+#calculations
+TIL_table$CD3_p <- TIL_table$CD3 / TIL_table$total_cells * 100
+TIL_table$CD8_p <- TIL_table$CD8 / TIL_table$total_cells * 100
+TIL_table$FOXP3_p <- TIL_table$FOXP3 / TIL_table$total_cells * 100
+TIL_table$CD163_p <- TIL_table$CD163 / TIL_table$total_cells * 100
+TIL_table$KI67_p <- TIL_table$KI67 / TIL_table$total_cells * 100
+
+df <- TIL_table %>%
+  filter(mature_pt %in% c("non-mature", "mature")) %>%
+  select(patient:mature_pt, CK:KI67) %>%
+  pivot_longer(cols = CK:KI67, names_to = "markers", values_to = "counts")
+
+stat_test <- df %>%
+  group_by(markers) %>%
+  wilcox_test(counts ~ mature_pt) %>%
+  mutate(FDR = p.adjust(.$p, method = "fdr"))
+
+for (marker in unique(df$markers)) {
+print(
+      ggplot(df[which(df$markers == marker),], aes(x = mature_pt, y = counts)) +
+      geom_boxplot(aes(fill = mature_pt),
+                     position = position_dodge(0.8), 
+                     width = 0.6, 
+                     fatten = 1) +
+      geom_point() +
+      scale_fill_manual(values = ann_c_maturity2[[1]][1:4]) +
+      stat_pvalue_manual(stat_test %>% 
+                           filter(marker %in% markers) %>% 
+                           add_y_position, 
+                         hide.ns = T, 
+                         tip.length = 0) +
+      theme_classic() +
+      theme_bp()+
+      theme(aspect.ratio = 1.5) +
+      ylab("counts") +
+      ggtitle(marker)
+)
+}
+```
+try the same with percentages instead of counts
+```{r}
+df <- TIL_table %>%
+  filter(mature_pt %in% c("non-mature", "mature")) %>%
+  select(patient:mature_pt, CD3_p:KI67_p) %>%
+  pivot_longer(cols = CD3_p:KI67_p, names_to = "markers", values_to = "counts")
+
+stat_test <- df %>%
+  group_by(markers) %>%
+  wilcox_test(counts ~ mature_pt) %>%
+  mutate(FDR = p.adjust(.$p, method = "fdr"))
+
+for (marker in unique(df$markers)) {
+print(
+      ggplot(df[which(df$markers == marker),], aes(x = mature_pt, y = counts)) +
+      geom_boxplot(aes(fill = mature_pt),
+                     position = position_dodge(0.8), 
+                     width = 0.6, 
+                     fatten = 1) +
+      geom_point() +
+      scale_fill_manual(values = ann_c_maturity2[[1]][1:4]) +
+      stat_pvalue_manual(stat_test %>% 
+                           filter(marker %in% markers) %>% 
+                           add_y_position, 
+                         hide.ns = T, 
+                         tip.length = 0) +
+      theme_classic() +
+      theme_bp()+
+      theme(aspect.ratio = 1.5) +
+      ylab("% postive cells") +
+      ggtitle(marker)
+)
+}
+```
+
+
+## LMM-DE analysis TLS: mature vs non-mature
+```{r}
+target_Data_TLS <- subset(geneSetObj,select = pData(geneSetObj)[["region"]] == "TLS")
+target_Data_TLS <- subset(target_Data_TLS, select = phenoData(target_Data_TLS)[["maturity2"]] %in% c("non-mature", "mature"))
+
+pData(target_Data_TLS)$dfRegion <- as.factor(pData(target_Data_TLS)$region)
+pData(target_Data_TLS)$dfPatient <- factor(pData(target_Data_TLS)$patient,
+                                       levels=c("P1","P2","P3","P5","P6","P7","P9"))
+pData(target_Data_TLS)$dfMature <- factor(pData(target_Data_TLS)$maturity2, levels = c("mature", "non-mature"))
+
+  mixedOutmc <-
+    mixedModelDE(target_Data_TLS,
+                 elt = "exprs",
+                 modelFormula = ~ dfMature + (1 | dfPatient),
+                 groupVar = "dfMature",
+                 multiCore = FALSE,
+                 pAdjust = NULL
+                 )
+  
+  lsmeans <- lapply(mixedOutmc, function(x) {x$lsmeans})
+  anova <- unlist(lapply(mixedOutmc, function(x) {x$anova}))
+  b <- lapply(lsmeans, function(x) {x[1]})
+  c <- lapply(lsmeans, function(x) {x[2]})
+  lmm_ssgsea_results <- cbind.data.frame(unlist(b), unlist(c))
+  names(lmm_ssgsea_results) <- c('LogFC', 'Pr(>|t|)')
+ 
+  ssgsea_dfs <- rownames(lmm_ssgsea_results)
+  lmm_ssgsea_results$Pathway <- rownames(lmm_ssgsea_results)
+  lmm_ssgsea_results$FDR <- p.adjust(lmm_ssgsea_results$`Pr(>|t|)`, method = "fdr")
+  lmm_ssgsea_results <- lmm_ssgsea_results[, c("Pathway", "LogFC",
+                                     "Pr(>|t|)", "FDR")]
+```
+
+```{r fig.height=10, fig.width=20}
+ann$aois <- rownames(ann)
+ann_c_maturity2 <- list("maturity2" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+pw_matrix<-assayDataElement(target_Data_TLS, elt = "exprs")
+order <- c(ann$aois[which(ann$maturity2 == "mature" & ann$region == "TLS")], 
+           ann$aois[which(ann$maturity2 == "non-mature"& ann$region == "TLS")])
+pw_matrix <- pw_matrix[,order]
+
+active_pw<-filter(lmm_ssgsea_results, `Pr(>|t|)` < 0.05 )$Pathway
+
+DE_im_pathways <- pheatmap(pw_matrix[active_pw,],
+           scale = "row", 
+           show_rownames = TRUE, show_colnames = F, 
+           gaps_col = 30,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           cluster_cols = F,
+           # clustering_method = "complete",
+           # clustering_distance_cols = "euclidean",
+           clustering_distance_rows = "euclidean",
+           cutree_cols = 2, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           cellheight = 12, cellwidth = 12, 
+           main = "mature vs non-mature TLS, p < 0.05",
+           border_color = "grey",
+           annotation_colors = c(ann_c_TLS_TIL, ann_c_pt, ann_c_tissue, ann_c_panels, ann_c_maturity, ann_c_maturity2),
+           annotation_col = pData(target_Data_TLS)[, c("maturity2", "maturity","tissue","patient", "region")])
+
+save_pheatmap_pdf(x = DE_im_pathways, file = paste0(figdir,"DSP1_CD45_DE_im_pathways_p0.05.pdf"))
+
+active_pw<-filter(lmm_ssgsea_results, FDR < 0.05 )$Pathway
+
+DE_im_pathways <- pheatmap(pw_matrix[active_pw,],
+           scale = "row", 
+           show_rownames = TRUE, show_colnames = F, 
+           gaps_col = 30,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           cluster_cols = F,
+           # clustering_method = "complete",
+           # clustering_distance_cols = "euclidean",
+           clustering_distance_rows = "euclidean",
+           cutree_cols = 2, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           cellheight = 12, cellwidth = 12, 
+           main = "mature vs non-mature TLS, FDR < 0.05",
+           border_color = "grey",
+           annotation_colors = c(ann_c_TLS_TIL, ann_c_pt, ann_c_tissue, ann_c_panels, ann_c_maturity, ann_c_maturity2),
+           annotation_col = pData(target_Data_TLS)[, c("maturity2", "maturity","tissue","patient", "region")])
+
+save_pheatmap_pdf(x = DE_im_pathways, file = paste0(figdir,"DSP1_CD45_DE_im_pathways_FDR0.05.pdf"))
+```
+
+# Dotplots TIL vs mature patients
+
+## DE pathways
+This uses a selected gene set object (ssgsea_results from gsva analysis)
+```{r pathways}
+aois <- rownames(ann)[which(ann$region == "TIL" & ann$patient %in% c("P1", "P5", "P6", "P2","P3", "P7", "P9"))]
+
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = immune_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+
+#subset target_data based on the genesets
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+geneSetObj_TIL <-subset(geneSetObj, select = phenoData(geneSetObj)[["region"]] == "TIL")
+geneSetObj_TIL <-subset(geneSetObj_TIL, select = phenoData(geneSetObj_TIL)[["mature_pt2"]] %in% c("non-mature", "mature"))
+
+pData(geneSetObj_TIL)$dfRegion <- as.factor(pData(geneSetObj_TIL)$region)
+pData(geneSetObj_TIL)$dfPatient <- factor(pData(geneSetObj_TIL)$patient,
+                                       levels=c("P1","P2","P3","P5","P6","P7","P9"))
+pData(geneSetObj_TIL)$dfMature <- factor(pData(geneSetObj_TIL)$mature_pt2, levels = c("non-mature", "mature"))
+pData(geneSetObj_TIL)[["slide"]] <- factor(pData(geneSetObj_TIL)[["slide name"]])
+
+   mixedOutmc <-
+    mixedModelDE(geneSetObj_TIL,
+                 elt = "exprs",
+                 modelFormula = ~ dfMature + (1 | dfPatient),
+                 groupVar = "dfMature",
+                 multiCore = FALSE,
+                 pAdjust = NULL
+                 )
+  
+  lsmeans <- lapply(mixedOutmc, function(x) {x$lsmeans})
+  anova <- unlist(lapply(mixedOutmc, function(x) {x$anova}))
+  b <- lapply(lsmeans, function(x) {x[1]})
+  c <- lapply(lsmeans, function(x) {x[2]})
+  lmm_ssgsea_results <- cbind.data.frame(unlist(b), unlist(c))
+  names(lmm_ssgsea_results) <- c('LogFC', 'Pr(>|t|)')
+ 
+  ssgsea_dfs <- rownames(lmm_ssgsea_results)
+  lmm_ssgsea_results$Pathway <- rownames(lmm_ssgsea_results)
+  lmm_ssgsea_results$FDR <- p.adjust(lmm_ssgsea_results$`Pr(>|t|)`, method = "fdr")
+  lmm_ssgsea_results <- lmm_ssgsea_results[, c("Pathway", "LogFC",
+                                     "Pr(>|t|)", "FDR")]
+
+lmm_ssgsea_results %>% filter(`Pr(>|t|)` < 0.05)
+
+pw_matrix<-assayDataElement(geneSetObj_TIL, elt = "exprs")
+```
+
+```{r}
+goi <- lmm_ssgsea_results %>% filter(`Pr(>|t|)` < 0.05) %>% rownames
+
+lmm_ssgsea_results %>% 
+  as.data.frame %>% 
+    remove_rownames %>% 
+      mutate(`-log10 pval` = -log10(`Pr(>|t|)`)) %>%
+        filter(Pathway %in% goi) %>%
+          arrange(`-log10 pval`) %>%
+            mutate(dir = factor(ifelse(LogFC > 0, "down", "up"), 
+                                levels = c("up",  "down"))) %>%  #up in mature, down in not-mature
+              mutate(Pathway = factor(Pathway, levels = rev(.$Pathway))) %>%
+                ggplot(aes(x = Pathway, y = `Pr(>|t|)`)) +
+                geom_segment(aes(x = Pathway, 
+                             xend = Pathway, 
+                             y = 0, 
+                             yend = `Pr(>|t|)`,
+                             color = dir),   
+                             linewidth = 1) + 
+                geom_hline(yintercept = c(0.05, 0.01), lty = "dashed", color = "black") +
+                geom_point(aes(color = dir, size = LogFC)) +
+                theme_classic() +
+                theme(aspect.ratio = 0.5,
+                      axis.title.y = element_blank(),
+                      axis.title.x = element_text(face = "bold"),
+                       plot.title = element_text(hjust = 0.5, face = "bold")) +
+                coord_flip() +
+                ylab("p value") +
+                labs(size = "log2 FC", color = "direction") +
+                ggtitle("DE pathways, p > 0.05")
+
+ggsave("DSP1_Spearman_matVSnotmat_TIL_pathways.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+```
+
+```{r eval = F}
+
+active_pw<-filter(lmm_ssgsea_results, `Pr(>|t|)` < 0.05 )$Pathway
+
+order <- c(ann$aois[which(ann$mature_pt2 == "mature" & ann$region == "TIL")], 
+           ann$aois[which(ann$mature_pt2 == "non-mature"& ann$region == "TIL")])
+
+pheatmap(pw_matrix[active_pw,order],
+           scale = "row", 
+           show_rownames = TRUE, show_colnames = F,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           clustering_method = "complete",
+           cluster_cols = F,
+           #clustering_distance_cols = "correlation",
+           clustering_distance_rows = "correlation",
+           cutree_cols = 2, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           #main ="LMM DE: TLS vs TIL pathway analysis (FDR < 0.05)",
+          annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue, ann_c_panels, ann_c_maturity, ann_c_mature_pt2),
+           annotation_col = pData(target_Data)[which( pData(target_Data)$region == "TIL"), c("mature_pt2","tissue", "region")])
+
+#save_pheatmap_pdf(x = DE_im_pathways, file = paste0(figdir,"DSP1_CD45_DE_im_pathways_with maturityANN_hm_supervised.pdf")) 
+```
+
+
+## DE genes
+This uses an object with all genes
+```{r}
+target_Data_TIL <- subset(target_Data,select = pData(target_Data)[["region"]] == "TIL")
+target_Data_TIL <-subset(target_Data_TIL, select = phenoData(target_Data_TIL)[["mature_pt2"]] %in% c("non-mature", "mature"))
+
+pData(target_Data_TIL)$dfRegion <- as.factor(pData(target_Data_TIL)$region)
+pData(target_Data_TIL)$dfPatient <- factor(pData(target_Data_TIL)$patient,
+                                       levels=c("P1","P2","P3","P5","P6","P7","P9"))
+pData(target_Data_TIL)$dfMature <- factor(pData(target_Data_TIL)$mature_pt2, levels = c("mature", "non-mature"))
+
+    mixedOutmc <-
+        mixedModelDE(target_Data_TIL,
+                     elt = "log_q",
+                     modelFormula = ~ dfMature + (1 | dfPatient),
+                     groupVar = "dfMature",
+                     nCores = parallel::detectCores(),
+                     multiCore = TRUE)
+    
+    # format results as data.frame
+    lmm_results <- do.call(rbind, mixedOutmc["lsmeans", ])
+    tests <- rownames(lmm_results)
+    lmm_results <- as.data.frame(lmm_results)
+    lmm_results$Contrast <- tests
+    
+    # use lapply in case you have multiple levels of your test factor to
+    # correctly associate gene name with it's row in the results table
+    lmm_results$Gene <- 
+        unlist(lapply(colnames(mixedOutmc),
+                      rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+    #lmm_results$Subset <- status
+    lmm_results$FDR <- p.adjust(lmm_results$`Pr(>|t|)`, method = "fdr")
+    lmm_results <- lmm_results[, c("Gene", "Contrast", "Estimate", 
+                         "Pr(>|t|)", "FDR")]
+    
+#lmm_results %>% filter(`Pr(>|t|)` < 0.05) %>% remove_rownames()
+#negative estimate indicates higher expression in second group in contrast
+#thus postive is up in non-mature, negative up in mature
+
+```
+
+
+```{r}
+goi <- immune_panels[["Cytotoxicity"]]
+
+line <- 0.05
+
+lmm_results %>% 
+  as.data.frame %>% 
+    remove_rownames %>% 
+      mutate(`-log10 pval` = -log10(`Pr(>|t|)`)) %>%
+        filter(Gene %in% goi) %>%
+          arrange(`-log10 pval`) %>%
+            mutate(dir = factor(ifelse(Estimate > 0, "down", "up"), 
+                                levels = c("up",  "down"))) %>%  #up in mature, down in not-mature
+              mutate(Gene = factor(Gene, levels = rev(.$Gene))) %>%
+                ggplot(aes(x = Gene, y = `Pr(>|t|)`)) +
+                geom_segment(aes(x = Gene, 
+                             xend = Gene, 
+                             y = 0, 
+                             yend = `Pr(>|t|)`,
+                             color = dir),   
+                             linewidth = 1) + 
+                geom_hline(yintercept = line, lty = "dashed", color = "black") +
+                geom_point(aes(color = dir, size = Estimate)) +
+                theme_classic() +
+                theme(aspect.ratio = 1.5,
+                      axis.title.y = element_blank(),
+                      axis.title.x = element_text(face = "bold"),
+                       plot.title = element_text(hjust = 0.5, face = "bold")) +
+                coord_flip() +
+                ylab("p value") +
+                labs(size = "log2 FC", color = "direction") +
+                ggtitle("cytotoxicity")
+
+ggsave("DSP1_Spearman_matVSnotmat_TIL_genes_cytox.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+```
+
+```{r eval = F}
+data <- assayDataElement(target_Data_TIL[goi, ], elt = "log_q")
+
+order <- c(ann$aois[which(ann$mature_pt2 == "mature" & ann$region == "TIL")], 
+           ann$aois[which(ann$mature_pt2 == "non-mature"& ann$region == "TIL")])
+
+pheatmap(data[,order],
+           scale = "row", 
+           show_rownames = TRUE, show_colnames = F,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           clustering_method = "complete",
+           cluster_cols = F,
+           #clustering_distance_cols = "correlation",
+           clustering_distance_rows = "correlation",
+           cutree_cols = 2, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           #main ="LMM DE: TLS vs TIL pathway analysis (FDR < 0.05)",
+          annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue, ann_c_panels, ann_c_maturity, ann_c_mature_pt2),
+           annotation_col = pData(target_Data)[which( pData(target_Data)$region == "TIL"), c("mature_pt2","tissue", "region")])
+
+#save_pheatmap_pdf(x = DE_im_pathways, file = paste0(figdir,"DSP1_CD45_DE_im_pathways_with maturityANN_hm_supervised.pdf")) 
+```
+
+```{r}
+goi <- immune_panels[["Other Interleukin Signaling"]]
+line <- 0.05
+
+lmm_results %>% 
+  as.data.frame %>% 
+    remove_rownames %>% 
+      mutate(`-log10 pval` = -log10(`Pr(>|t|)`)) %>%
+        filter(Gene %in% goi) %>% 
+        filter(`Pr(>|t|)` < 0.05) %>%
+          arrange(`-log10 pval`) %>%
+            mutate(dir = factor(ifelse(Estimate > 0, "down", "up"), 
+                                levels = c("up",  "down"))) %>%  #up in mature, down in not-mature
+              mutate(Gene = factor(Gene, levels = rev(.$Gene))) %>%
+                ggplot(aes(x = Gene, y = `Pr(>|t|)`)) +
+                geom_segment(aes(x = Gene, 
+                             xend = Gene, 
+                             y = 0, 
+                             yend = `Pr(>|t|)`,
+                             color = dir),   
+                             linewidth = 1) + 
+                #geom_hline(yintercept = line, lty = "dashed", color = "black") +
+                geom_point(aes(color = dir, size = Estimate)) +
+                theme_classic() +
+                theme(aspect.ratio = 1.5,
+                      axis.title.y = element_blank(),
+                      axis.title.x = element_text(face = "bold"),
+                       plot.title = element_text(hjust = 0.5, face = "bold")) +
+                coord_flip() +
+                ylab("p value") +
+                labs(size = "log2 FC", color = "direction") +
+                ggtitle("other interleukin signaling")
+
+ggsave("DSP1_Spearman_matVSnotmat_TIL_genes_ILsig.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+```
+```{r}
+goi <- lmm_results %>% filter(`Pr(>|t|)` < 0.01) %>% select(Gene) %>% unlist %>% as.vector
+
+line <- 0.05
+
+lmm_results %>% 
+  as.data.frame %>% 
+    remove_rownames %>% 
+      mutate(`-log10 pval` = -log10(`Pr(>|t|)`)) %>%
+        filter(Gene %in% goi) %>% 
+          arrange(`-log10 pval`) %>%
+            mutate(dir = factor(ifelse(Estimate < 0, "down", "up"), 
+                                levels = c("up",  "down"))) %>%  #up in mature, down in not-mature
+              mutate(Gene = factor(Gene, levels = rev(.$Gene))) %>%
+                ggplot(aes(x = Gene, y = `Pr(>|t|)`)) +
+                geom_segment(aes(x = Gene, 
+                             xend = Gene, 
+                             y = 0, 
+                             yend = `Pr(>|t|)`,
+                             color = dir),   
+                             linewidth = 1) + 
+                geom_hline(yintercept = c(0.01, 0.005, 0.001), lty = "dashed", color = "black") +
+                geom_point(aes(color = dir, size = Estimate)) +
+                theme_classic() +
+                theme(axis.title.y = element_blank(),
+                      axis.title.x = element_text(face = "bold"),
+                       plot.title = element_text(hjust = 0.5, face = "bold")) +
+                coord_flip() +
+                labs(size = "log2 FC", color = "direction") +
+                ylab("p value") +
+                ggtitle("DE genes, p < 0.01")
+
+ggsave("DSP1_Spearman_matVSnotmat_TIL_genes_p0.05.pdf", device = "pdf", height = 7, width = 4, path = figdir)
+```
+
+# Correlation TLS-subsets with TIL-subsets
+prepare df for TIL and merge with TLS
+```{r}
+#merge with props_TIL
+props_TIL$mature_pt2 <- mat_selection$mat_pt2
+props_TIL$region <- "TIL" 
+props_TLS$mature_pt2 <- mat_selection$mat_pt2
+
+```
+
+## mature pt
+```{r}
+means <- colMeans(props_TLS_all[,-1])
+index <- names(means[which(means > 0.02)])
+#index <- means[-7]
+
+TLS_mat <- props_TLS[which(props_TLS$mature_pt2 == "mature"), index]
+TIL_mat <- props_TIL[which(props_TIL$mature_pt2 == "mature"), index]
+
+#substitude zeros with very low values
+TIL_mat[TIL_mat == 0] <- 0.00000001
+TIL_mat[2,9] <-  0.00000002
+TIL_mat[2,7] <-  0.00000002
+
+cor_mat <- cor(x = TLS_mat, y = TIL_mat)
+
+cor_test_mat <- corr.test(x = TLS_mat, y = TIL_mat, method = "spearman")$p
+
+pdf(file = paste0(figdir, "DSP1_corrplot subsets matTLS and TIL.pdf"))
+
+corrplot(corr = cor_mat, 
+         method = "ellipse",
+         tl.col = "black",
+         tl.cex = 1.5, 
+         pch.col = "white",
+         p.mat = cor_test_mat,
+         sig.level = 0.05,
+         insig = "label_sig",
+         mar = c(2, 2, 2, 2))
+
+dev.off()
+
+```
+## immature pt
+
+```{r}
+means <- colMeans(props_TLS_all[,-1])
+index <- names(means[which(means > 0.02)])
+
+TLS_mat <- props_TLS[which(props_TLS$mature_pt2 == "non-mature"), index]
+TIL_mat <- props_TIL[which(props_TIL$mature_pt2 == "non-mature"), index]
+
+#substitude zeros with very low values
+TIL_mat[TIL_mat == 0] <- 0.0000001
+
+cor_mat <- cor(x = TLS_mat, y = TIL_mat)
+
+cor_test_mat <- corr.test(x = TLS_mat, y = TIL_mat, method = "spearman")$p
+
+pdf(file = paste0(figdir, "DSP1_corrplot subsets imTLS and TIL.pdf"))
+
+corrplot(corr = cor_mat, 
+         method = "ellipse",
+         tl.col = "black",
+         tl.cex = 1.5, 
+         pch.col = "white",
+         p.mat = cor_test_mat,
+         sig.level = 0.05,
+         insig = "label_sig",
+         mar = c(2, 2, 2, 2))
+
+dev.off()
+
+```
+
+## all pt
+```{r fig.width=10, fig.height=10}
+means <- colMeans(props_TLS_all[,-1])
+index <- names(means[which(means > 0.02)])
+
+TLS_mat <- props_TLS[, index]
+TIL_mat <- props_TIL[, index]
+
+cor_mat <- cor(x = TLS_mat, y = TIL_mat)
+
+cor_test_mat <- corr.test(x = TLS_mat, y = TIL_mat, method = "spearman")$p
+
+pdf(file = paste0(figdir, "DSP1_corrplot subsets TLS and TIL_all pt.pdf"))
+
+corrplot(corr = cor_mat, 
+         method = "ellipse",
+         tl.col = "black",
+         tl.cex = 1.5, 
+         pch.col = "white",
+         p.mat = cor_test_mat,
+         sig.level = 0.05,
+         insig = "label_sig",
+         mar = c(2, 2, 2, 2))
+
+dev.off()
+ 
+#cor_mat[cor_mat > -0.6 & cor_mat < 0.6] <- NA
+#cor_mat
+
+
+```
+
+# correlation chemokines in 12-ck en immune subsets in TLS en TIL
+spearman correlation was performed but most data seemed too significant for the low correlations. 
+```{r fig.height=10, fig.width=10}
+cytokine_mat <- log2(assayDataElement(target_Data[cyto.sig,active_aois_TLS], elt = "q_norm"))
+order <- sort(colnames(cytokine_mat))
+cytokine_mat <- cytokine_mat[, order]
+colnames(cytokine_mat) <- ann$name[which(ann$region == "TLS")]
+cytokine_mat <- t(cytokine_mat) %>% as.data.frame 
+
+prop_mat <- props_TLS_all
+rownames(prop_mat) <- prop_mat[,1]
+prop_mat <- prop_mat[,-1]
+prop_mat %<>% select(all_of(coi))
+```
+
+```{r fig.height=5, fig.width=5, eval = F}
+#to produce scatterplots of data
+for (cells in colnames(prop_mat)) {
+  for (chemo in colnames(cytokine_mat)) {
+    
+    a <- cbind(prop = prop_mat[,as.character(cells)], 
+               chemo = cytokine_mat[,as.character(chemo)]) %>% 
+      as.data.frame
+    
+    cor_coef <- round(cor_mat[chemo, cells], digits = 2)
+    cor_pval <- round(cor_test_mat[chemo, cells], digits = 4)
+    
+    if(cor_coef > -0.6 & cor_coef < 0.6 | cor_pval > 0.05 ) next
+    
+      print(
+        ggplot(a, aes(x = chemo, y = prop)) +
+        geom_point() +
+        geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+        ggtitle(paste(cells, chemo, "rho =", cor_coef, "p =", cor_pval)) + 
+        theme_bw() +
+        theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+              legend.title = element_blank(), legend.position = "none",
+              aspect.ratio = 1,
+              axis.title = element_text(face = "bold")) +
+        xlab("log2 expression") +
+        ylab("proportion")
+      )
+        
+    ggsave(paste0("DSP1_Spearman_TLS-chemo_TIL-subs_",cells,"_", chemo, ".pdf"), 
+                  device = "pdf", path = paste0(figdir, "scatterplots"))
+  }
+}
+
+#are the correlations explained by the spatial decon matrix?
+# current_cell_profile %>% 
+#   as.data.frame %>%
+#   mutate(across(where(is.numeric), round, 3)) %>%
+#   rownames_to_column("genes") %>%
+#   filter(genes %in% c("CCL5", "CCL4", "CCL2", "CXCL9"))
+
+#it explains the correlation between CCL5 and CD8 Tmemory, but not the other correlations
+
+```
+
+## scatterplots
+```{r}
+cytokine_mat <- log2(assayDataElement(target_Data[cyto.sig,active_aois_TLS], elt = "q_norm"))
+order <- sort(colnames(cytokine_mat))
+cytokine_mat <- cytokine_mat[, order]
+colnames(cytokine_mat) <- ann$name[which(ann$region == "TLS")]
+cytokine_mat <- t(cytokine_mat) %>% as.data.frame 
+
+prop_mat <- props_TLS_all
+rownames(prop_mat) <- prop_mat[,1]
+prop_mat <- prop_mat[,-1]
+prop_mat %<>% select(all_of(coi))
+
+cor_mat <- cor(x = cytokine_mat, y = prop_mat)
+cor_test_mat <- corr.test(x = cytokine_mat, y = prop_mat, method = "spearman")$p
+
+a <- cbind(prop = prop_mat[,"macrophages"], 
+           chemo = cytokine_mat[,"CCL2"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CCL2", "macrophages"], digits = 2)
+cor_pval <- round(cor_test_mat["CCL2", "macrophages"], digits = 10)
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 5, y = 0.25, hjust = 0, label = paste0("rho =", cor_coef)) +
+  annotate("text", x= 5, y = 0.23, hjust = 0, label = substitute(paste(italic("p"), " < 0.001"))) +
+  ggtitle(paste("macrophages - CCL2")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_macro_CCL2.pdf", device = "pdf", path = figdir)
+
+################
+a <- cbind(prop = prop_mat[,"CD8 T memory"], 
+           chemo = cytokine_mat[,"CCL4"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CCL4", "CD8 T memory"], digits = 2)
+cor_pval <- round(cor_test_mat["CCL4", "CD8 T memory"], digits = 10)
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 5, y = 0.38, hjust = 0, label = paste0("rho =", cor_coef)) +
+  annotate("text", x= 5, y = 0.36, hjust = 0, label = substitute(paste(italic("p"), " < 0.001"))) +
+  ggtitle(paste("CD8 T memory - CCL4")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_Cd8Tmem_CCL4.pdf", device = "pdf", path = figdir)
+
+################
+
+a <- cbind(prop = prop_mat[,"CD8 T memory"], 
+           chemo = cytokine_mat[,"CXCL9"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CXCL9", "CD8 T memory"], digits = 2)
+cor_pval <- round(cor_test_mat["CXCL9", "CD8 T memory"], digits = 10)
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 3.5, y = 0.38, hjust = 0, label = paste0("rho =", cor_coef)) +
+  annotate("text", x= 3.5, y = 0.36, hjust = 0, label = substitute(paste(italic("p"), " < 0.001"))) +
+  ggtitle(paste("CD8 T memory - CXCL9")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_Cd8Tmem_CXCL9.pdf", device = "pdf", path = figdir)
+
+```
+
+## mmlm TLS subsets & TLS chemokines
+we try to do a similar analysis using a multivariate multiple linear model
+TLS chemokine correlation with TLS subsets
+```{r warning = F, include = F}
+prop_mat %<>% as.matrix
+cytokine_mat %<>% as.matrix
+
+test <- lm(prop_mat ~ cytokine_mat)
+summary(test)
+
+#estimates mmlm
+heatmap_estimate<- test %>% 
+  tidy %>% 
+  filter(term != "(Intercept)") %>% 
+  select(response, term, estimate) %>% 
+  pivot_wider(names_from = term, values_from = estimate) %>% 
+  column_to_rownames(var = "response") %>% 
+  scale()
+colnames(heatmap_estimate) <- cyto.sig
+
+#pvalues mmlm
+heatmap_p <- test %>% 
+  tidy %>% 
+  filter(term != "(Intercept)") %>% 
+  select(response, term, `p.value`) %>% 
+  pivot_wider(names_from = term, values_from = `p.value`) %>% 
+  column_to_rownames(var = "response") 
+colnames(heatmap_p) <- cyto.sig
+
+#manual annotation of pvalues in heatmap
+panno_function = function(j, i, x, y, width, height, fill) {if(heatmap_p[i, j] <= 0.05) grid.text(round(heatmap_p[i, j], digits = 3), x, y, gp = gpar(fontsize = 10, font="bold"))} 
+
+pdf(file = paste0(figdir, "DSP1_mmlm TLS chemokines and subsets_hm.pdf"), height = 7, width = 8)
+
+Heatmap(heatmap_estimate, cell_fun = panno_function)
+
+dev.off()
+```
+
+# Correlation TLS chemokines and TIL subsets
+TLS chemokine correlation with TIL subsets
+first calculate mean per patient
+
+```{r, fig.height=20, fig.width=20}
+patients <- unique(ann$patient)
+
+cytokine_mat <- data.frame(row.names = cyto.sig)
+
+for (pt in patients) {
+  
+  index <- rownames(ann)[which(ann$region == "TLS" & ann$patient == as.character(pt))]
+  n <- length(index)
+ 
+   cytokines <- log2(assayDataElement(target_Data[cyto.sig, index], elt = "q_norm")) %>%
+    rowSums/n
+   
+  cytokines <- as.data.frame(cytokines)
+  colnames(cytokines) <- pt
+  
+  cytokine_mat <- cbind(cytokine_mat, cytokines)
+}
+
+prop_mat <- data.frame(row.names = prettynames)
+
+for (pt in patients) {
+  
+  index <- rownames(ann)[which(ann$region == "TIL" & ann$patient == as.character(pt))]
+
+  n <- length(index)
+  
+  props <- props_TIL_all %>% 
+    filter(name %in% ann$name[which(ann$region == "TIL" & ann$patient == as.character(pt))]) %>%
+    select(macrophages:Treg) %>%
+    colSums/n
+  
+  props <- as.data.frame(props)
+  colnames(props) <- pt
+  
+  prop_mat <- cbind(prop_mat, props)
+}
+
+prop_mat %<>% t
+cytokine_mat %<>% t
+
+```
+
+```{r fig.height=5, fig.width=5}
+#to remove low abundance subsets
+means <- colMeans(prop_mat)
+means <- names(means[which(means > 0.03)])
+
+#to produce scatterplots of data
+for (cells in colnames(prop_mat[,means])) {
+  for (chemo in colnames(cytokine_mat)) {
+    
+    a <- cbind(prop = prop_mat[,as.character(cells)], 
+               chemo = cytokine_mat[,as.character(chemo)]) %>% 
+      as.data.frame
+    
+    cor_coef <- round(cor_mat[chemo, cells], digits = 2)
+    cor_pval <- round(cor_test_mat[chemo, cells], digits = 4)
+    
+    if(cor_coef > -0.6 & cor_coef < 0.6 | cor_pval > 0.05 ) next
+    
+      print(
+        ggplot(a, aes(x = chemo, y = prop)) +
+        geom_point() +
+        geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+        ggtitle(paste(cells, chemo, "rho =", cor_coef, "p =", cor_pval)) + 
+        theme_bw() +
+        theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+              legend.title = element_blank(), legend.position = "none",
+              aspect.ratio = 1,
+              axis.title = element_text(face = "bold")) +
+        xlab("log2 expression") +
+        ylab("proportion")
+      )
+        
+    #ggsave(paste0("DSP1_Spearman_TLS-chemo_TIL-subs_",cells,"_", chemo, ".pdf"), 
+    #              device = "pdf", path = paste0(figdir, "scatterplots"))
+  }
+}
+
+#check if correlations are due to spatial decon matrix
+current_cell_profile %>%
+  as.data.frame %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  rownames_to_column("genes") %>%
+  filter(genes %in% cyto.sig)
+
+# potential fake associations:
+# memory CD4/CD8 T cells / CCL5
+# MQ CCL18, and CXCL9 and CCL5 (low in matrix)
+# CD8 T memory CCL4 (very low in matrix)
+
+# potential real associations (0 in matrix)
+# B naive CCL18
+# CD4 T naive CXCL10 (-)
+# CD4 T mem CCL18 (-), CXCL9 (+)
+# CD8 T memory CXCL10, CXCL13
+
+
+```
+## scatterplots
+```{r}
+a <- cbind(prop = prop_mat[,"B naive"], 
+           chemo = cytokine_mat[,"CCL18"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CCL18", "B naive"], digits = 2)
+cor_pval <- round(cor_test_mat["CCL18", "B naive"], digits = 3)
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 5.2, y = 0.115, hjust = 0, label = paste0("rho = ", cor_coef)) +
+  annotate("text", x= 5.2, y = 0.105, hjust = 0, label = substitute(paste(italic("p"), " = 0.038"))) +
+  ggtitle(paste("B naive - CCL18")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_TIL-Bnaive_TLS-CCL18.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+########
+
+a <- cbind(prop = prop_mat[,"CD4 T memory"], 
+           chemo = cytokine_mat[,"CCL18"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CCL18", "CD4 T memory"], digits = 2)
+cor_pval <- round(cor_test_mat["CCL18", "CD4 T memory"], digits = 3) %>% print
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 5.2, y = 0.25, hjust = 0, label = paste0("rho = ", cor_coef)) +
+  annotate("text", x= 5.2, y = 0.24, hjust = 0, label = substitute(paste(italic("p"), " = 0.022"))) +
+  ggtitle(paste("CD4 T memory - CCL18")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_TIL-CD4Tmem_TLS-CCL18.pdf", device = "pdf",height = 4, width = 4, path = figdir)
+
+########
+
+a <- cbind(prop = prop_mat[,"CD4 T memory"], 
+           chemo = cytokine_mat[,"CXCL9"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CXCL9", "CD4 T memory"], digits = 2)
+cor_pval <- round(cor_test_mat["CXCL9", "CD4 T memory"], digits = 3) %>% print
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 4.9, y = 0.25, hjust = 0, label = paste0("rho = ", cor_coef)) +
+  annotate("text", x= 4.9, y = 0.24, hjust = 0, label = substitute(paste(italic("p"), " = 0.003"))) +
+  ggtitle(paste("CD4 T memory - CXCL9")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_TIL-CD4Tmem_TLS-CXCL9.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+########
+
+a <- cbind(prop = prop_mat[,"CD4 T naive"], 
+           chemo = cytokine_mat[,"CXCL10"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CXCL10", "CD4 T naive"], digits = 2)
+cor_pval <- round(cor_test_mat["CXCL10", "CD4 T naive"], digits = 3) %>% print
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 4.8, y = 0.28, hjust = 0, label = paste0("rho = ", cor_coef)) +
+  annotate("text", x= 4.8, y = 0.26, hjust = 0, label = substitute(paste(italic("p"), " = 0.002"))) +
+  ggtitle(paste("CD4 T naive - CXCL10")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_TIL-CD4Tnaive_TLS-CXCL10.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+########
+
+a <- cbind(prop = prop_mat[,"CD8 T memory"], 
+           chemo = cytokine_mat[,"CXCL10"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CXCL10", "CD8 T memory"], digits = 2)
+cor_pval <- round(cor_test_mat["CXCL10", "CD8 T memory"], digits = 3) %>% print
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 4.7, y = 0.5, hjust = 0, label = paste0("rho = ", cor_coef)) +
+  annotate("text", x= 4.7, y = 0.48, hjust = 0, label = substitute(paste(italic("p"), " = 0.013"))) +
+  ggtitle(paste("CD8 T memory - CXCL10")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_TIL-CD8Tmem_TLS-CXCL10.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+########
+
+a <- cbind(prop = prop_mat[,"CD8 T memory"], 
+           chemo = cytokine_mat[,"CXCL13"]) %>% 
+  as.data.frame
+
+cor_coef <- round(cor_mat["CXCL13", "CD8 T memory"], digits = 2)
+cor_pval <- round(cor_test_mat["CXCL13", "CD8 T memory"], digits = 3) %>% print
+
+ggplot(a, aes(x = chemo, y = prop)) +
+  geom_point() +
+  geom_smooth(color = "#9e42f5", method = "lm", se = F) +
+  annotate("text", x = 5, y = 0.5, hjust = 0, label = paste0("rho = ", cor_coef)) +
+  annotate("text", x= 5, y = 0.48, hjust = 0, label = substitute(paste(italic("p"), " = 0.025"))) +
+  ggtitle(paste("CD8 T memory - CXCL13")) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank(), legend.position = "none",
+        aspect.ratio = 1,
+        axis.title = element_text(face = "bold")) +
+  xlab("log2 expression") +
+  ylab("proportion")
+
+ggsave("DSP1_Spearman_TIL-CD8Tmem_TLS-CXCL13.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+```
+
+# immune abundance mature vs immature
+
+```{r}
+order <- rownames(ann)[which(ann$segment == "CD45")]
+test <- absolute[,order]
+colnames(test) <- ann$name[which(ann$segment == "CD45")]
+test<- t(test)
+test %<>% 
+  as.data.frame %>% 
+  rownames_to_column("name") %>% 
+  left_join(ann[which(ann$segment == "CD45"),], "name") %>% 
+  select(name:segment, mature_pt2)
+
+#cells in TIL, mat vs imat
+test %>% 
+  filter(region == "TIL") %>%
+  na.omit %>% 
+  pivot_longer(cols = `macrophages`:`Treg`, names_to = "cells", values_to = "abundance") %>%
+  ggplot(aes(x = cells, y = abundance)) +
+  geom_boxplot(aes(fill = mature_pt2)) +
+  theme_classic () +
+  ggtitle("TIL, mature vs immature") +
+  theme_bp()
+
+#cells in TLS, mat vs imat
+test %>% 
+  filter(region == "TLS") %>%
+  na.omit %>% 
+  pivot_longer(cols = `macrophages`:`Treg`, names_to = "cells", values_to = "abundance") %>%
+  ggplot(aes(x = cells, y = abundance)) +
+  geom_boxplot(aes(fill = mature_pt2)) +
+  theme_classic () +
+  ggtitle("TLS, mature vs immature") +
+  theme_bp()
+
+#cells in TIL, GC vs  PM
+test %>% 
+  filter(region == "TIL") %>%
+  na.omit %>% 
+  pivot_longer(cols = `macrophages`:`Treg`, names_to = "cells", values_to = "abundance") %>%
+  ggplot(aes(x = cells, y = abundance)) +
+  geom_boxplot(aes(fill = tissue)) +
+  theme_classic () +
+    ggtitle("TIL, GC vs  PM") +
+  theme_bp()
+
+#cells in TLS, GC vs  PM
+test %>% 
+  filter(region == "TLS") %>%
+  na.omit %>% 
+  pivot_longer(cols = `macrophages`:`Treg`, names_to = "cells", values_to = "abundance") %>%
+  ggplot(aes(x = cells, y = abundance)) +
+  geom_boxplot(aes(fill = tissue)) +
+  theme_classic () +
+   ggtitle("TLS, GC vs PM") +
+  theme_bp()
+
+```
+# Boxplot subsets per TIL maturity state
+```{r}
+stat_test <- props_TIL_all_long %>%
+  select(name:prop) %>%
+  left_join(ann[which(ann$region == "TIL"),], by = "name") %>%
+  select(name:region, mature_pt2) %>%
+  filter(cells %in% coi) %>% 
+  na.omit %>%
+  mutate(mature_pt2 = factor(mature_pt2, 
+                           levels = c("non-mature", "mature"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages", 
+                                   "classical monocytes", "non-classical monocytes"))) %>%
+  group_by(cells) %>%
+  pairwise_wilcox_test(prop ~ mature_pt2, 
+                       p.adjust.method = "fdr") %>%
+  mutate(p.symbol = p.adj.signif) 
+
+props_TIL_all_long %>%  
+  select(name:prop) %>%
+  left_join(ann[which(ann$region == "TIL"),], by = "name") %>%
+  select(name:region, mature_pt2) %>%
+  filter(cells %in% coi) %>% 
+  na.omit %>%
+  mutate(mature_pt2 = factor(mature_pt2, 
+                           levels = c("non-mature", "mature"))) %>% 
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages", 
+                                   "classical monocytes", "non-classical monocytes"))) %>% 
+  ggplot(aes(x = cells, y = prop)) +
+    geom_boxplot(aes(fill = mature_pt2),
+                 position = position_dodge(0.8), 
+                 width = 0.6, 
+                 fatten = 1) +
+    scale_fill_manual(values = ann_c_maturity2[[1]][1:4]) +
+    stat_pvalue_manual(stat_test %>%
+                         add_x_position(x = "cells") %>%
+                         add_y_position(step.increase = 0.06),
+                     hide.ns = T,
+                     label = "p.symbol",
+                     tip.length = 0.01, label.size = 6) +
+    theme_classic() +
+    theme_bp()+
+    ylab("proportions") +
+    scale_x_discrete(labels = label_wrap(10))+
+    ylim(-0.05, 1)
+
+ggsave("DSP1_boxplots TIL_mature pt.pdf", device = "pdf", height = 5, width = 11, path = figdir)
+
+```
+
+
+## LMM-DE analysis TLS vs TIL
+```{r }
+#calculate enrichment of panels
+ssgsea_results <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = immune_panels,
+                            method = "ssgsea",
+                            min.sz = 3,
+                            max.sz = 500,
+                            verbose = FALSE)
+
+#subset target_data based on the genesets
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+#make a new df with only the expression data of the genesetobject
+pw_matrix<-assayDataElement(geneSetObj, elt = "exprs")
+
+```
+
+```{r LMM_of_pathway}
+pData(geneSetObj)$dfRegion <- as.factor(pData(geneSetObj)$region) %in% c("TIL", "TLS")
+pData(geneSetObj)$dfPatient <- factor(pData(geneSetObj)$patient,
+                                       levels=c("P1","P2","P3","P4","P5","P6","P7","P8","P9","P10"))
+pData(geneSetObj)$dfState <- as.factor(pData(geneSetObj)$region)
+pData(geneSetObj)[["slide"]] <- factor(pData(geneSetObj)[["slide name"]])
+
+lmm_ssgsea_results <- c()
+
+#analysis_regions <- unique(pData(geneSetObj)$dfRegion)
+analysis_regions <- TRUE
+
+for(region in analysis_regions) {
+  print(region)
+  active_aois<-pData(geneSetObj)$dfRegion == region
+  mixedOutmc <-
+    mixedModelDE(geneSetObj[, active_aois],
+                 elt = "exprs",
+                 modelFormula = ~ dfState + (1 | dfPatient),
+                 groupVar = "dfState",
+                 multiCore = FALSE,
+                 pAdjust = NULL
+                 )
+  
+  # format results as data.frame
+  #r_ssgsea_df <- do.call(rbind.data.frame, mixedOutmc["lsmeans", ])
+  lsmeans <- lapply(mixedOutmc, function(x) {x$lsmeans})
+  anova <- unlist(lapply(mixedOutmc, function(x) {x$anova}))
+  b <- lapply(lsmeans, function(x) {x[1]})
+  c <- lapply(lsmeans, function(x) {x[2]})
+  r_ssgsea_df <- cbind.data.frame(unlist(b), unlist(c))
+  names(r_ssgsea_df) <- c('Estimate', 'Pr(>|t|)')
+ 
+  ssgsea_dfs <- rownames(r_ssgsea_df)
+  r_ssgsea_df$Contrast <- anova
+  #r_ssgsea_df$Genes <- immune_panels seems unreliable as gsva omits pathways if genes are not in data..
+  
+  # use lapply in case you have multiple levels of your df factor to
+  # correctly associate gene name with it's row in the results table
+  r_ssgsea_df$Pathway <- rownames(r_ssgsea_df)
+  r_ssgsea_df$Subset <- region
+  
+  r_ssgsea_df$FDR <- p.adjust(r_ssgsea_df$`Pr(>|t|)`, method = "fdr")
+  r_ssgsea_df <- r_ssgsea_df[, c("Pathway", "Subset", "Contrast", "Estimate",
+                                     "Pr(>|t|)", "FDR")]
+  lmm_ssgsea_results <- rbind(lmm_ssgsea_results, r_ssgsea_df)
+  
+}
+
+lmm_ssgsea_results<-merge(lmm_ssgsea_results,pw_gene_df)
+
+```
+
+
+Heatmap of DE pathways
+```{r pw_heatmap, fig.height=15, fig.width=30}
+options(scipen = 999) #disable scientific notation
+
+active_pw<-filter(lmm_ssgsea_results, FDR < 0.05 )$Pathway
+
+# order <- c(rownames(ann)[which(ann$region == "TIL")],
+#            rownames(ann)[which(ann$maturity == "LA")], 
+#            rownames(ann)[which(ann$maturity == "early TLS")],
+#            rownames(ann)[which(ann$maturity == "PF-like TLS")],
+#            rownames(ann)[which(ann$maturity == "SF-like TLS")])
+
+order <- ann %>% filter(segment == "CD45") %>% arrange(region, mature_pt2) %>% select(aois) %>% unlist %>% as.vector
+
+ann_c_mature_pt2 <- list("mature_pt2" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA", "ambiguous" = "white"))
+
+DE_im_pathways <- pheatmap(pw_matrix[active_pw,order],
+           scale = "row", gaps_col = 20,
+           show_rownames = TRUE, show_colnames = F,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           clustering_method = "complete",
+           cluster_cols = F,
+           #clustering_distance_cols = "correlation",
+           clustering_distance_rows = "correlation",
+           cutree_cols = 2, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           main ="LMM DE: TLS vs TIL pathway analysis (FDR < 0.05)",
+          annotation_colors = c(ann_c_TLS_TIL, ann_c_pt, ann_c_tissue, ann_c_panels, ann_c_mature_pt2),
+           annotation_col = pData(target_Data)[which( pData(target_Data)$segment == "CD45"), c("mature_pt2", "tissue","patient", "region")])
+
+
+save_pheatmap_pdf(x = DE_im_pathways, file = paste0(figdir,"DSP1_DE_im_pathways_with maturityANN_hm_supervised.pdf")) 
+```
+
+## Tumor pathways (non-DE)
+For Tumor region: signalling pathways
+
+```{r warning = F}
+tumor_signalling <-  subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Signaling Pathways"])
+
+ssgsea_results_tumor <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = tumor_signalling,
+                            method = "ssgsea",
+                            min.sz = 5,
+                            max.sz = 500,
+                            verbose = FALSE)
+```
+
+Heatmap
+```{r tumor heatmap, fig.height=10, fig.width=15}
+tumor_pathway_ph <- pheatmap(ssgsea_results_tumor[,active_aois_PanCK],
+           scale = "row", 
+           show_rownames = TRUE, show_colnames = FALSE,
+           fontsize_row = 11,
+           clustering_method = "complete",
+           clustering_distance_cols = "correlation",
+           clustering_distance_rows = "correlation",
+           cutree_cols = 1, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           annotation_colors = c(ann_c_tumor, ann_c_pt, ann_c_tissue),
+           cellheight = 12, cellwidth = 12, 
+           border_color = "grey",
+           main = "Pathways of tumor cells (non-DE)",
+           annotation_col = pData(target_Data)[, c("tissue","patient", "region")])
+```
+
+# Export annotations and data
+
+```{r}
+combined <- "DSP-TLS/Combined/"
+
+saveRDS(target_Data, file = paste0(combined, "target_Data1.RDS"))
+write_xlsx(ann, paste0(combined, "ann_1.xlsx"))
+```
+
+
+```{r}
+knitr::knit_exit()
+
+```
+
