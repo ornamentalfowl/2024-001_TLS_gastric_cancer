@@ -1,0 +1,2153 @@
+---
+title: "DSP_2_analysis"
+author: "R. Franco Fernandez"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    html_document:
+      code_download: true
+      dev: "svg"
+      code_folding: hide
+      toc: true
+      toc_float:
+        collapsed: false
+        smooth_scroll: true
+      toc_depth: 3
+      wrap: sentence
+editor_options: 
+    markdown: 
+    wrap: sentence
+---
+
+# Setup
+```{r load_libraries, message=FALSE, warning=FALSE}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(SpatialDecon)
+library(GSVA) 
+library(msigdbr)
+library(ggforce)
+library(scales)
+library(cowplot)
+library(umap)
+library(Rtsne)
+library(ggrepel) 
+library(scales)
+library(DT)
+library(plotly)
+library(gridExtra)
+library(RColorBrewer)
+library(gt)
+library(fgsea)
+library(pathview)
+library(png)
+library(viridis)
+library(standR)
+library(ggalluvial)
+library(preprocessCore)
+library(Polychrome)
+library("ape")
+library("ggtree")
+library(tidytree)
+library(ggsankey)
+library(ggpubr)
+library(rstatix)
+library(tidyverse)
+library(ComplexHeatmap)
+library(pheatmap) 
+library(readxl)
+library(psych)
+library(corrplot)
+library(writexl)
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE) 
+```
+
+```{r}
+target_Data <- readRDS("cohort2/Analysis/target_Data_round2.RDS")
+
+figdir <- "cohort2/Analysis/Output/"
+
+count_mat <- dplyr::count(pData(target_Data), tissue,patient,region,segment,`slide_name`, name)
+
+#annotation vectors
+ann_c_TLS <- list(region = c("TLS"=brewer.pal(6,"Set1")[3]))
+ann_c_TIL <- list(region = c("TIL"=brewer.pal(6,"Set1")[2]))
+ann_c_tumor <- list(region = c("Tumor"=brewer.pal(6,"Set1")[1]))
+ann_c_TLS_TIL <-  list(region = c("TLS"=brewer.pal(6,"Set1")[3], 
+                                  "TIL"=brewer.pal(6,"Set1")[2]))
+ann_c_region <- list(region = c("Tumor"=brewer.pal(6,"Set1")[1],"TLS"=brewer.pal(6,"Set1")[3], "TIL"=brewer.pal(6,"Set1")[2]))
+
+ann_c_pt <- list(patient = c("P11"="#A349A4",
+            "P12"="#FFFF33",	
+            "P13"="#E7298A",
+            "P14"="#091833",
+            "P15"="#1B9E77",
+            "P16"="#D95F02",
+            "P17"="#7570B3",
+            "P18"="#66A61E")            )
+
+ann_c_tissue <- list(tissue = c("GC"="#F0A0FF", "PM"="#FCD800"))
+ann_c_SN <- list('slide name' = c("GC1_2"=brewer.pal(8,"Dark2")[1], 
+                                  "GC3_4"=brewer.pal(8,"Dark2")[2], 
+                                  "GC5_6"=brewer.pal(8,"Dark2")[3],
+                                  "PM1_4"=brewer.pal(8,"Dark2")[4]))
+
+# ann_c_maturity <- list("maturity" = c("mature" = "#1C798B", 
+#                                     "immature" = "#4EC1D7", 
+#                                     "lymphoid aggregate" = "#ABF1FF"))
+
+ann_c_maturity <- list("maturity" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+ann_c_mature_pt <- list("mature_pt" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+ann_c_panels = list('panel' = c("Adaptive Immunity"=brewer.pal(8,"Accent")[1], 
+                                     "Innate Immunity"=brewer.pal(8,"Accent")[2], 
+                                     "Immune Response"=brewer.pal(8,"Accent")[3]))
+
+ann_c_clusters_TLS <- list("clusters" = c("B naive enriched" = "#FF8080",
+                                          "B memory enriched" = "#A0FFA0",
+                                          "CD4 T memory enriched" = "#05BE78",
+                                          "mixed enriched" = "#C0B57B"))
+
+ann_c_clusters_TIL <- list("clusters" = c("CD8 T memory enriched" = "#5757F9" ,
+                                          "plasma cell enriched" = "#B856D7",
+                                          "macrophage enriched" = "#C0B57B"))
+
+ann_c_clusters_TLS_TIL <- list("clusters" = c("B naive enriched" = "#FF8080", 
+                                              "B memory enriched" = "#A0FFA0", 
+                                              "CD4 T memory enriched" = "#05BE78", 
+                                              "mixed enriched" = "#C0B57B", 
+                                              "CD8 T memory enriched" = "#5757F9" ,
+                                              "plasma cell enriched" = "#B856D7", 
+                                              "macrophage enriched" = "#C0B57B"))
+
+theme_default <- function () {
+  
+    theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(), 
+        plot.title = element_text(hjust = 0.5, face = "bold"), 
+        legend.title = element_blank()) 
+}
+
+save_pheatmap_pdf <- function(x, filename, width=25, height=15) {
+     stopifnot(!missing(x))
+     stopifnot(!missing(filename))
+     pdf(filename, width=width, height=height)
+     grid::grid.newpage()
+     grid::grid.draw(x$gtable)
+     dev.off()
+}
+
+theme_umap <- function () {
+  
+    theme(axis.title = element_text(face = "bold"), 
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        aspect.ratio = 1) 
+}
+
+theme_bp <- function() {
+        theme(legend.title = element_blank(), 
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(face = "bold", size = 15),
+        plot.title=element_text(hjust=0.5, face = "bold"),
+        axis.text.x = element_text(vjust = 1, hjust = 1, angle = 45, size = 11),
+        axis.text.y = element_text(size = 11)) 
+}
+
+```
+
+
+```{r define_active_aois}
+
+ann <- pData(target_Data) %>% as.data.frame %>% dplyr::select(slide_name, name:region, segment)
+ann$aois <- rownames(ann)
+ann$pt_code <- paste0(ann$patient, "_", ann$tissue)
+
+#grab all genes that survived QC
+genes <- rownames(exprs(target_Data))
+
+#order annotations
+ann_ordered <- ann %>% arrange(region, tissue, patient)
+
+#create aois for all regions
+active_aois_TIL <- rownames(ann_ordered)[ann_ordered$region == "TIL"]
+active_aois_TLS <- rownames(ann_ordered)[ann_ordered$region == "TLS"]
+active_aois_Tumor <- rownames(ann_ordered)[ann_ordered$region == "Tumor"]
+
+#aois based on segment 
+active_aois_CD45 <- rownames(ann_ordered)[ann_ordered$segment == "CD45"]
+active_aois_PanCK <- rownames(ann_ordered)[ann_ordered$segment == "CK"]
+
+rm(ann_ordered)
+```
+
+
+```{r sankey, eval = F, fig.width=20,fig.height=11}
+#ann_names<- c("slide_name", "patient","tissue", "segment", "region")
+ann_names<- c("slide_name", "segment", "tissue", "region", "patient")
+ann_size<-length(ann_names)
+
+count_mat <- pData(target_Data) %>% dplyr::count(pData(target_Data)[c(ann_names)])
+
+test_gr <- gather_set_data(count_mat, 1:all_of(ann_size))
+test_gr$x <- factor(test_gr$x, labels = ann_names)
+
+ggplot(test_gr, height = 10, width = 10, aes(x, id = id, split = y, value = n)) +
+  geom_parallel_sets(aes(fill = test_gr$region), axis.width = 0.1) +
+  geom_parallel_sets_axes(axis.width = 0.2) +
+  geom_parallel_sets_labels(color = "white", size = 5) +
+  theme_classic(base_size = 17) + 
+  theme(legend.position = "bottom",
+        axis.ticks.y = element_blank(),
+        axis.line = element_blank(),
+        axis.text.y = element_blank()) +
+  scale_y_continuous(expand = expansion(0)) + 
+  scale_x_discrete(expand = expansion(0)) +
+  scale_fill_manual(values=ann_c_region) +
+  labs(x = "", y = "") +
+  annotate(geom = "segment", x = 3.25, xend = 3.25, y = 10, 
+           yend = 60, lwd = 2) 
+
+#saveRDS(test_gr, "test_gr.RDS")
+#saveRDS(color_list, "color_list.RDS")
+```
+
+# UMAP
+```{r umap}
+custom_umap <- umap::umap.defaults
+custom_umap$random_state <- 42
+custom_umap$min_dist <- 0.5
+# run UMAP
+
+umap_out <-
+  umap(t(log2(assayDataElement(target_Data , elt = "q_norm"))),  
+       config = custom_umap)
+pData(target_Data)[, c("UMAP_1", "UMAP_2")] <- umap_out$layout[, c(1,2)]
+
+ggplot(pData(target_Data),
+       aes(x = UMAP_1, y = UMAP_2, color = region, shape = tissue)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = ann_c_region[[1]]) +
+  theme_classic()  +
+  theme_umap() 
+
+ggsave("DSP2_umap region_and_tissue.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+custom_umap <- umap::umap.defaults
+custom_umap$random_state <- 42
+custom_umap$min_dist <- 0.05
+
+umap_out <-
+  umap(t(log2(assayDataElement(target_Data[,active_aois_TLS], elt = "q_norm"))),  
+       config = custom_umap)
+pData(target_Data)[active_aois_TLS, c("UMAP_1", "UMAP_2")] <- umap_out$layout[, c(1,2)]
+
+ggplot(pData(target_Data)[active_aois_TLS,],
+       aes(x = UMAP_1, y = UMAP_2, color = region, shape = tissue)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = ann_c_region[[1]]) +
+  theme_classic()  +
+  theme_umap()
+
+ggsave("DSP2_umap_TLS_only_and_tissue.pdf", device = "pdf", height = 4, width = 4, path = figdir)
+
+```
+
+# Spatial decon
+```{r , results='hide'}
+#calculate backgrounds 
+bg = derive_GeoMx_background(
+  norm = assayDataElement(target_Data , elt = "q_norm"),
+  probepool = fData(target_Data)$Module,
+  negnames = c("NegProbe-CTP01","NegProbe-Kilo","Negative Probe", "NegProbe-WTX" ))
+  #negnames = "NegProbe-WTX")
+
+#safeTME
+data("safeTME")
+data("safeTME.matches")
+current_cell_profile<-safeTME
+
+#deselect endothelial cells and fibroblasts from matrix
+current_cell_profile <- current_cell_profile[,c(-17, -18)]
+
+#assign prettier names
+prettynames <- c("macrophages", "mast", "B naive", "B memory", "plasma cells", "CD4 T naive", "CD4 T memory", "CD8 T naive", "CD8 T memory", "NK cells", "pDC", "mDC", "classical monocytes", "non-classical monocytes", "neutrophils", "Treg") 
+colnames(current_cell_profile) <- prettynames
+
+#colorcode the cells
+cols = c("#A0FFA0", "#FF8080", "#05BE78", "#FFA040", "#5757F9", "#F74ED6", "#F2B77C", "#C0B57B", "#FFFFA0", "#8BABD3",
+         "#90BFF9", "#A00000", "#41F0AE", "#EECCF9", "#B856D7", "#F96495")
+names(cols) <- str_sort(prettynames)
+```
+Run spatial decon
+```{r}
+res <- runspatialdecon(object = target_Data[,active_aois_CD45],
+                      norm_elt = "q_norm",                      # normalized data
+                      raw_elt = "exprs",                        # expected background counts for every data point in norm
+                      #is_pure_tumor = target_Data$istumor,     # identities of the Tumor segments/observations
+                      cell_counts = target_Data$nuclei,         # nuclei counts, used to estimate total cells
+                      X = current_cell_profile,                  # safeTME matrix, used by default
+                      #cellmerges = safeTME.matches,            # safeTME.matches object, used by default
+                      #n_tumor_clusters = 5,                    # how many distinct tumor profiles to append to safeTME
+)
+```
+
+## Abundance/proportions per roi
+make dfs with all data (no means)
+```{r df no means}
+absolute <- pmin(t(res$beta))  
+
+#TLS
+ann2 <- subset(ann, region == "TLS")
+absolute_TLS_all <- absolute[,rownames(ann2)]
+colnames(absolute_TLS_all) <- ann2$name
+props_TLS_all <- as.data.frame(t(absolute_TLS_all))
+props_TLS_all <- tibble::rownames_to_column(props_TLS_all, "name") #put rownames as first column
+props_TLS_all <- cbind(name = props_TLS_all[, 1], props_TLS_all[, -1]/rowSums(props_TLS_all[, -1])) #calculate proportions
+props_TLS_all_long <- props_TLS_all %>% tidyr::gather(cells, prop, macrophages:Treg) %>% arrange(name)
+rownames(ann2) <- ann2$name
+props_TLS_all_long <- left_join(props_TLS_all_long, ann2, by = "name") %>%
+  arrange(name)
+props_TLS_all_long$patient <- factor(props_TLS_all_long$patient, levels =c("P11","P12","P13","P14","P15","P16","P17","P18"))
+
+#saveRDS(props_TLS_all_long, file = "Combined/props_TLS_DSP2.RDS")
+
+#TIL
+ann2 <- subset(ann, region == "TIL")
+absolute_TIL_all <- absolute[,rownames(ann2)]
+colnames(absolute_TIL_all) <- ann2$name
+props_TIL_all <- as.data.frame(t(absolute_TIL_all))
+props_TIL_all <- tibble::rownames_to_column(props_TIL_all, "name") #put rownames as first column
+props_TIL_all <- cbind(name = props_TIL_all[, 1], props_TIL_all[, -1]/rowSums(props_TIL_all[, -1])) #calculate proportions
+props_TIL_all_long <- props_TIL_all %>% tidyr::gather(cells, prop, macrophages:Treg) %>% arrange(name)
+rownames(ann2) <- ann2$name
+props_TIL_all_long <- left_join(props_TIL_all_long, ann2, by = "name") %>%
+  arrange(name)
+props_TIL_all_long$patient <- factor(props_TIL_all_long$patient, levels =c("P11","P12","P13","P14","P15","P16","P17","P18"))
+
+#saveRDS(props_TIL_all_long, file = "Combined/props_TIL_DSP2.RDS")
+  
+```
+
+### Barplots: proportions spatial decon all names
+TLS
+
+```{r}
+props_TLS_all_long %>% 
+  arrange(tissue, patient) %>% 
+    mutate(name = factor(name, levels = unique(name))) %>%
+      ggplot(aes(x = name, y = prop, fill = cells)) +
+      geom_bar(stat = "identity", position = "stack", width = 0.9)+ 
+      ggtitle("TLS") +
+      scale_fill_manual(values= cols)+
+      theme_classic() +
+      theme(axis.text.x = element_blank(), 
+            axis.ticks.x = element_blank(), 
+            plot.title = element_text(hjust = 0.5, face = "bold"), 
+            legend.title = element_blank()) +
+      labs(y = "proportions", x = "samples") +
+      annotate("rect", xmin =0.5, xmax = 15.5, ymin = -0.04, ymax = -0.06, fill = ann_c_tissue[[1]][1], color = "grey",) + #gc
+      annotate("rect", xmin =15.5, xmax = 29.5, ymin = -0.04, ymax = -0.06, fill = ann_c_tissue[[1]][2], color = "grey") + #pm
+      annotate("rect", xmin =0.5, xmax = 29.5, ymin = -0.07, ymax = -0.09, fill = ann_c_region[[1]][2], color = "grey") + #TLS
+      annotate("rect", xmin =.5, xmax = 3.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][1], color = "grey") + #p11
+      annotate("rect", xmin =3.5, xmax = 4.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][2], color = "grey") + #p12
+      annotate("rect", xmin =4.5, xmax = 5.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][3], color = "grey") + #p13
+      annotate("rect", xmin =5.5, xmax = 6.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][5], color = "grey") + #p15
+      annotate("rect", xmin =6.5, xmax = 7.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][6], color = "grey") + #p16
+      annotate("rect", xmin =7.5, xmax = 11.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][7], color = "grey") + #p17
+      annotate("rect", xmin =11.5, xmax = 15.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][8], color = "grey") + #p18
+      annotate("rect", xmin =15.5, xmax = 16.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][1], color = "grey") + #p11  
+      annotate("rect", xmin =16.5, xmax = 18.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][2], color = "grey") + #p12
+      annotate("rect", xmin =18.5, xmax = 22.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][4], color = "grey") + #p14
+      annotate("rect", xmin =22.5, xmax = 25.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][5], color = "grey") + #p15
+      annotate("rect", xmin =25.5, xmax = 27.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][6], color = "grey") + #p16
+      annotate("rect", xmin =27.5, xmax = 29.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][8], color = "grey")  #p1
+
+ggsave("DSP2_stacked barplot TLS individual.pdf", device = "pdf", height = 5, width = 5, path = figdir)
+```
+
+```{r eval = F}
+ # TLS
+ index <- c("macrophages", "B naive", "B memory", "plasma cells", "CD4 T naive", "CD4 T memory", "CD8 T naive", "CD8 T memory", "NK cells", "Treg")
+
+stat_test <- props_TLS_all_long %>% filter(cells %in% index) %>%
+    group_by(cells) %>%
+    wilcox_test(prop ~ tissue)
+
+writexl::write_xlsx(props_TLS_all_long %>% filter(cells %in% index), path = paste0(figdir, "/DSP2_TLS_props.xlsx"))
+
+#TIL
+ index <- c("macrophages", "B naive", "B memory", "plasma cells", "CD4 T naive", "CD4 T memory", "CD8 T naive", "CD8 T memory", "NK cells", "Treg")
+
+stat_test <- props_TIL_all_long %>% filter(cells %in% index) %>%
+    group_by(cells) %>%
+    wilcox_test(prop ~ tissue)
+
+writexl::write_xlsx(props_TIL_all_long %>% filter(cells %in% index), path = paste0(figdir, "/DSP2_TIL_props.xlsx"))
+
+#statistics were calculated here, plot was made in graphpad
+```
+
+
+TIL
+```{r}
+props_TIL_all_long %>% 
+  arrange(tissue, patient) %>% 
+    mutate(name = factor(name, levels = unique(name))) %>%
+      ggplot(aes(x = name, y = prop, fill = cells)) +
+      geom_bar(stat = "identity", position = "stack", width = 0.9)+ 
+      ggtitle("TIL") +
+      scale_fill_manual(values= cols)+
+      theme_classic() +
+      theme(axis.text.x = element_blank(), 
+            axis.ticks.x = element_blank(), 
+            plot.title = element_text(hjust = 0.5, face = "bold"), 
+            legend.title = element_blank()) +
+      labs(y = "proportions", x = "samples") +
+      annotate("rect", xmin =0.5, xmax = 11.5, ymin = -0.04, ymax = -0.06, fill = ann_c_tissue[[1]][1], color = "grey",) + #gc
+      annotate("rect", xmin =11.5, xmax = 20.5, ymin = -0.04, ymax = -0.06, fill = ann_c_tissue[[1]][2], color = "grey") + #pm
+      annotate("rect", xmin =0.5, xmax = 20.5, ymin = -0.07, ymax = -0.09, fill = ann_c_region[[1]][3], color = "grey") + #TIL
+      annotate("rect", xmin =.5, xmax = 2.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][1], color = "grey") + #p11
+      annotate("rect", xmin =2.5, xmax = 3.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][2], color = "grey") + #p12
+      annotate("rect", xmin =3.5, xmax = 5.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][3], color = "grey") + #p13
+      annotate("rect", xmin =5.5, xmax = 7.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][4], color = "grey") + #p14
+      annotate("rect", xmin =7.5, xmax = 8.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][5], color = "grey") + #p15
+      annotate("rect", xmin =8.5, xmax = 10.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][6], color = "grey") + #p16
+      annotate("rect", xmin =10.5, xmax = 11.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][8], color = "grey") + #p18
+      annotate("rect", xmin =11.5, xmax = 13.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][2], color = "grey") + #p12
+      annotate("rect", xmin =13.5, xmax = 15.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][4], color = "grey") + #p14
+      annotate("rect", xmin =15.5, xmax = 17.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][5], color = "grey") + #p15
+      annotate("rect", xmin =17.5, xmax = 18.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][6], color = "grey") + #p16
+      annotate("rect", xmin =18.5, xmax = 20.5, ymin = -0.01, ymax = -0.03, fill = ann_c_pt[[1]][8], color = "grey") 
+
+ggsave("DSP2_stacked barplot TIL individual aois.pdf", device = "pdf", height = 5, width = 4.5, path = figdir)
+
+```
+
+# Maturity clustering
+```{r results = 'hide'}
+#select maturity genes
+maturity_genes <- c("MS4A1", "CD3E", "FCER2", "CR2", "CXCL13", "BCL6") #"CD180", "GATA2", "EP300","PTCRA"
+
+#are these in the panel?
+in_panel <- subset(genes, genes %in% maturity_genes)
+setdiff(maturity_genes, in_panel)
+
+#create a df with custom aoi names
+mature_data <- log2(assayDataElement(target_Data[in_panel,active_aois_TLS], elt = "q_norm"))
+order <- sort(colnames(mature_data ))
+mature_data  <- mature_data [, order] #reorder columns alphabetically
+colnames(mature_data ) <- ann$name[which(ann$region == "TLS")]
+ann_TLS <- subset(ann, region == "TLS")
+rownames(ann_TLS) <- ann_TLS$name
+
+```
+
+```{r fig.width=15, fig.height=10, warning = F}
+#subset for cell whose means > 0.01
+means <- colMeans(props_TLS_all[,-1])
+means <- names(means[which(means > 0.03)])
+
+df <- props_TLS_all %>% 
+  column_to_rownames("name") %>% 
+  select(means) %>% t
+
+maturity_matrix <- rbind(mature_data, df)
+
+mature_TLS_hm<- pheatmap(maturity_matrix ,
+         scale = "row", # additional normalization by row 
+         angle_col = 90,
+         main = "TLS maturity", 
+         cutree_rows = 2, cutree_cols = 2,
+         show_rownames = T, show_colnames = T,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("#003399", "#FFFFE6", "#CC0000"))(120),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue),
+         cellheight = 15, cellwidth = 15,
+         labels_col = ann$name[which(ann$region == "TLS")],
+         annotation_col = ann_TLS[, c("tissue", "patient", "region")])
+
+clusters <- cutree(mature_TLS_hm$tree_col, k = 2)
+table(clusters)
+ann_TLS$maturity <- clusters
+ann_TLS$maturity[which(ann_TLS$maturity == 1)] <- "mature"
+ann_TLS$maturity[which(ann_TLS$maturity == 2)] <- "non-mature"
+
+#add maturity to target_Data
+pData(target_Data)$maturity <- NA
+pData(target_Data)$maturity[which(pData(target_Data)$region == "TLS")] <- ann_TLS$maturity
+ann$maturity <- pData(target_Data)$maturity
+
+mature_TLS_hm<- pheatmap(maturity_matrix ,
+         scale = "row", # additional normalization by row 
+         angle_col = 90,
+         main = "TLS maturity", 
+         cutree_rows = 3, cutree_cols = 2,
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("#003399", "#FFFFE6", "#CC0000"))(120),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         cellheight = 15, cellwidth = 15,
+         labels_col = ann$name[which(ann$region == "TLS")],
+         annotation_col = ann_TLS[, c("maturity", "tissue", "patient", "region")])
+
+save_pheatmap_pdf(x = mature_TLS_hm, file = paste0(figdir,"DSP2_maturity_TLS_hm.pdf"))
+
+mat <- ann_TLS %>% select(name, maturity)
+props_TLS_all_long %<>% left_join(mat, by = "name")
+
+```
+```{r fig.width=15, fig.height=10}
+
+clusters <- cutree(mature_TLS_hm$tree_col, k = 8)
+table(clusters)
+ann_TLS$maturity2 <- clusters
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 1)] <- "SF-like TLS"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 2)] <- "SF-like TLS"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 3)] <- "SF-like TLS"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 4)] <- "early TLS"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 5)] <- "SF-like TLS"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 6)] <- "LA"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 7)] <- "PF-like TLS"
+ann_TLS$maturity2[which(ann_TLS$maturity2 == 8)] <- "early TLS"
+
+#add maturity2 to target_Data
+pData(target_Data)$maturity2 <- NA
+pData(target_Data)$maturity2[which(pData(target_Data)$region == "TLS")] <- ann_TLS$maturity2
+ann$maturity2 <- pData(target_Data)$maturity2
+
+ann_c_maturity2 <- list("maturity2" = c("LA" = "#ABF1FF", "early TLS" = "#4EC1D7","PF-like TLS" = "#14919E","SF-like TLS" = "#0D636C"))
+
+mature_TLS_hm<- pheatmap(maturity_matrix,
+         scale = "row", # additional normalization by row 
+         angle_col = 90,
+         main = "TLS maturity", 
+         cutree_rows = 3, cutree_cols = 2,
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("#003399", "#FFFFE6", "#CC0000"))(120),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity, ann_c_maturity2),
+         cellheight = 15, cellwidth = 15,
+         labels_col = ann$name[which(ann$region == "TLS")],
+         annotation_col = ann_TLS[, c("maturity", "maturity2", "tissue", "patient", "region")])
+
+save_pheatmap_pdf(x = mature_TLS_hm, file = paste0(figdir,"DSP2_maturity_TLS_hm2.pdf"))
+```
+
+
+# Means per patient & per tissue
+
+```{r dfs with means, results='hide', include = F}
+#extract absolute values
+absolute <- pmin(t(res$beta))  
+absolute %>% as.data.frame %>% arrange(rownames(absolute))
+
+## dfs for proportions
+#first make vectors for TLS patient aois
+ann2 <- subset(ann, region == "TLS")
+
+#Subset patients and tissues
+p11_GC  <- rownames(ann2[which(ann2$patient == "P11" & ann2$tissue == "GC"),])
+p12_GC  <- rownames(ann2[which(ann2$patient == "P12" & ann2$tissue == "GC"),])
+p13_GC <- rownames(ann2[which(ann2$patient == "P13" & ann2$tissue == "GC"),])
+p14_GC <- rownames(ann2[which(ann2$patient == "P14" & ann2$tissue == "GC"),])
+p15_GC  <- rownames(ann2[which(ann2$patient == "P15" & ann2$tissue == "GC"),])
+p16_GC  <- rownames(ann2[which(ann2$patient == "P16" & ann2$tissue == "GC"),])
+p17_GC  <- rownames(ann2[which(ann2$patient == "P17" & ann2$tissue == "GC"),])
+p18_GC  <- rownames(ann2[which(ann2$patient == "P18" & ann2$tissue == "GC"),])
+
+p11_PM  <- rownames(ann2[which(ann2$patient == "P11" & ann2$tissue == "PM"),])
+p12_PM  <- rownames(ann2[which(ann2$patient == "P12" & ann2$tissue == "PM"),])
+p13_PM <- rownames(ann2[which(ann2$patient == "P13" & ann2$tissue == "PM"),])
+p14_PM <- rownames(ann2[which(ann2$patient == "P14" & ann2$tissue == "PM"),])
+p15_PM  <- rownames(ann2[which(ann2$patient == "P15" & ann2$tissue == "PM"),])
+p16_PM  <- rownames(ann2[which(ann2$patient == "P16" & ann2$tissue == "PM"),])
+p17_PM  <- rownames(ann2[which(ann2$patient == "P17" & ann2$tissue == "PM"),])
+p18_PM  <- rownames(ann2[which(ann2$patient == "P18" & ann2$tissue == "PM"),])
+
+#df with absolute values of TLS
+absolute_TLS <- data.frame(P11_GC = rowMeans(absolute[,p11_GC]), 
+                           P12_GC = absolute[,p12_GC],
+                           P13_GC = absolute[,p13_GC], 
+                           #p14_GC = rowMeans(absolute[,p14_GC]), no data
+                           P15_GC = absolute[,p15_GC], 
+                           P16_GC = absolute[,p16_GC], 
+                           P17_GC = rowMeans(absolute[,p17_GC]), 
+                           P18_GC = rowMeans(absolute[,p18_GC]),
+                           P11_PM = absolute[,p11_PM], 
+                           P12_PM = rowMeans(absolute[,p12_PM]),
+                           #p13_PM = rowMeans(absolute[,p13_PM]), no data
+                           P14_PM = rowMeans(absolute[,p14_PM]), 
+                           P15_PM = rowMeans(absolute[,p15_PM]), 
+                           P16_PM = rowMeans(absolute[,p16_PM]), 
+                           #p17_PM = rowMeans(absolute[,p17_PM]), no data
+                           P18_PM = rowMeans(absolute[,p18_PM])
+                           )
+
+#df for TLS proportions
+props_TLS <- as.data.frame(t(absolute_TLS))
+props_TLS <- rownames_to_column(props_TLS, "patient_code") #put rownames as first column
+props_TLS <- cbind(patient_code = props_TLS[, 1], props_TLS[, -1]/rowSums(props_TLS[, -1])) #calculate proportions
+
+order <- colnames(props_TLS[,2:ncol(props_TLS)])
+props_TLS$patient <- sapply(strsplit(props_TLS$patient_code, "_"), "[[", 1) 
+props_TLS$tissue <- sapply(strsplit(props_TLS$patient_code, "_"), "[[", 2) 
+props_TLS <- props_TLS[, c("patient", order, "tissue")]
+
+props_TLS_long <- props_TLS %>% gather(cells, prop, macrophages:Treg) %>% arrange(patient) #make data suitable for stacked barplot
+props_TLS_long$region <- "TLS"
+
+#saveRDS(props_TLS, file = "Combined/props_TLS_means_DSP2.RDS")
+
+# make vectors for TIL patient aois
+ann2 <- subset(ann, region == "TIL")
+
+#Subset patients and tissues
+p11_GC  <- rownames(ann2[which(ann2$patient == "P11" & ann2$tissue == "GC"),])
+p12_GC  <- rownames(ann2[which(ann2$patient == "P12" & ann2$tissue == "GC"),])
+p13_GC <- rownames(ann2[which(ann2$patient == "P13" & ann2$tissue == "GC"),])
+p14_GC <- rownames(ann2[which(ann2$patient == "P14" & ann2$tissue == "GC"),])
+p15_GC  <- rownames(ann2[which(ann2$patient == "P15" & ann2$tissue == "GC"),])
+p16_GC  <- rownames(ann2[which(ann2$patient == "P16" & ann2$tissue == "GC"),])
+p17_GC  <- rownames(ann2[which(ann2$patient == "P17" & ann2$tissue == "GC"),])
+p18_GC  <- rownames(ann2[which(ann2$patient == "P18" & ann2$tissue == "GC"),])
+
+p11_PM  <- rownames(ann2[which(ann2$patient == "P11" & ann2$tissue == "PM"),])
+p12_PM  <- rownames(ann2[which(ann2$patient == "P12" & ann2$tissue == "PM"),])
+p13_PM <- rownames(ann2[which(ann2$patient == "P13" & ann2$tissue == "PM"),])
+p14_PM <- rownames(ann2[which(ann2$patient == "P14" & ann2$tissue == "PM"),])
+p15_PM  <- rownames(ann2[which(ann2$patient == "P15" & ann2$tissue == "PM"),])
+p16_PM  <- rownames(ann2[which(ann2$patient == "P16" & ann2$tissue == "PM"),])
+p17_PM  <- rownames(ann2[which(ann2$patient == "P17" & ann2$tissue == "PM"),])
+p18_PM  <- rownames(ann2[which(ann2$patient == "P18" & ann2$tissue == "PM"),])
+
+#df with absolute values of TIL
+absolute_TIL <- data.frame(P11_GC = rowMeans(absolute[,p11_GC]), 
+                           P12_GC = absolute[,p12_GC],
+                           P13_GC = rowMeans(absolute[,p13_GC]), 
+                           p14_GC = rowMeans(absolute[,p14_GC]),
+                           P15_GC = absolute[,p15_GC], 
+                           P16_GC = rowMeans(absolute[,p16_GC]), 
+                           #P17_GC = rowMeans(absolute[,p17_GC]), no data
+                           P18_GC = absolute[,p18_GC],
+                           #P11_PM = absolute[,p11_PM], 
+                           P12_PM = rowMeans(absolute[,p12_PM]),
+                           #p13_PM = rowMeans(absolute[,p13_PM]), no data
+                           P14_PM = rowMeans(absolute[,p14_PM]), 
+                           P15_PM = rowMeans(absolute[,p15_PM]), 
+                           P16_PM = absolute[,p16_PM], 
+                           #p17_PM = rowMeans(absolute[,p17_PM]), no data
+                           P18_PM = rowMeans(absolute[,p18_PM])
+                           )
+
+#df for TIL proportions
+props_TIL <- as.data.frame(t(absolute_TIL))
+props_TIL <- rownames_to_column(props_TIL, "patient_code") #put rownames as first column
+props_TIL <- cbind(patient_code = props_TIL[, 1], props_TIL[, -1]/rowSums(props_TIL[, -1])) #calculate proportions
+
+order <- colnames(props_TIL[,2:ncol(props_TIL)])
+props_TIL$patient <- sapply(strsplit(props_TIL$patient_code, "_"), "[[", 1) 
+props_TIL$tissue <- sapply(strsplit(props_TIL$patient_code, "_"), "[[", 2) 
+props_TIL <- props_TIL[, c("patient", order, "tissue")]
+
+props_TIL_long <- props_TIL %>% gather(cells, prop, macrophages:Treg) %>% arrange(patient) #make data suitable for stacked barplot
+props_TIL_long$region <- "TIL"
+
+#saveRDS(props_TIL, file = "Combined/props_TIL_means_DSP2.RDS")
+
+```
+
+## Scaled proportions
+```{r }
+#TIL
+scaled_TIL <- subset(res$beta, rownames(res$beta) %in% active_aois_TIL)
+min <- min(scaled_TIL[scaled_TIL > 0])
+scaled_TIL <- sweep(scaled_TIL, 1, pmax(apply(scaled_TIL, 1, max), min), "/")
+scaled_TIL <- scaled_TIL[,-c(2,10:12, 13:15)] #keep subsets of interest
+
+#assign names to the df
+scaled_TIL <- as.data.frame(scaled_TIL) %>% arrange(rownames(scaled_TIL))
+rownames(scaled_TIL) <- ann[which(ann$region == "TIL"),]$name
+
+ann_TIL <- subset(ann, region == "TIL")
+rownames(ann_TIL) <- ann_TIL$name
+
+#TLS
+scaled_TLS <- subset(res$beta, rownames(res$beta) %in% active_aois_TLS)
+min <- min(scaled_TLS[scaled_TLS > 0])
+scaled_TLS <- sweep(scaled_TLS, 1, pmax(apply(scaled_TLS, 1, max), min), "/")
+scaled_TLS <- scaled_TLS[,-c(2, 10:12, 13:15)] #keep subsets of interest
+
+#assign names to the df
+scaled_TLS <- as.data.frame(scaled_TLS) %>% arrange(rownames(scaled_TLS))
+rownames(scaled_TLS) <- ann[which(ann$region == "TLS"),]$name
+
+ann_TLS <- subset(ann, region == "TLS")
+rownames(ann_TLS) <- ann_TLS$name
+```
+
+### Scaled heatmap of TLS
+```{r fig.height=10, fig.width=15}
+scaled_TLS_heatmap <- pheatmap(t(scaled_TLS), 
+         main = "Scaled TLS",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 4, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = T,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         annotation_col = ann_TLS[, c("maturity", "tissue","patient", "region")])
+
+#define clustermembership scaled TLS
+clusters <- cutree(scaled_TLS_heatmap$tree_col, k = 4)
+table(clusters)
+ann_TLS$clusters <- clusters
+ann_TLS$clusters[which(ann_TLS$clusters == 1)] <- "B memory enriched"
+ann_TLS$clusters[which(ann_TLS$clusters == 2)] <- "B naive enriched"
+ann_TLS$clusters[which(ann_TLS$clusters == 3)] <- "CD4 T memory enriched"
+ann_TLS$clusters[which(ann_TLS$clusters == 4)] <- "mixed enriched"
+
+#add membership to target_Data
+pData(target_Data)$clusters <- NA
+pData(target_Data)$clusters[which(pData(target_Data)$region == "TLS")] <- ann_TLS$clusters
+ann$clusters <- pData(target_Data)$clusters
+```
+
+```{r fig.height=10, fig.width=15}
+scaled_TLS_heatmap <- pheatmap(t(scaled_TLS), 
+         main = "Scaled TLS",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 4, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = F,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity, ann_c_maturity2),
+         annotation_col = ann_TLS[, c( "maturity", "maturity2", "tissue", "patient","region")])
+
+save_pheatmap_pdf(x = scaled_TLS_heatmap,  file = paste0(figdir,"DSP2_scaled_TLS_hm.pdf"))
+```
+
+### Scaled heatmaps of TIL
+```{r fig.height=10, fig.width=15}
+scaled_TIL_heatmap <- pheatmap(t(scaled_TIL), 
+         main = "Scaled TIL",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 3, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = T,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue),
+         annotation_col = ann_TIL[, c("tissue", "patient","region")])
+
+#define clustermembership scaled TIL
+clusters <- cutree(scaled_TIL_heatmap$tree_col, k = 3)
+table(clusters)
+ann_TIL$clusters <- clusters
+ann_TIL$clusters[which(ann_TIL$clusters == 2)] <- "CD8 T memory enriched"
+ann_TIL$clusters[which(ann_TIL$clusters == 1)] <- "macrophage enriched"
+ann_TIL$clusters[which(ann_TIL$clusters == 3)] <- "plasma cell enriched"
+
+#add clusters to target_Data
+pData(target_Data)$clusters[which(pData(target_Data)$region == "TIL")] <- ann_TIL$clusters
+ann$clusters[which(ann$region == "TIL")] <- pData(target_Data)$clusters[which(pData(target_Data)$region == "TIL")]
+
+```
+
+```{r fig.height=10, fig.width=15}
+scaled_TIL_heatmap <- pheatmap(t(scaled_TIL), 
+         main = "Scaled TIL",
+        clustering_method = "complete",
+        clustering_distance_cols = "correlation",
+        clustering_distance_rows = "correlation",
+         cutree_cols = 3, cutree_rows = 1,
+         fontsize_row = 11,
+         show_rownames = T, show_colnames = F,
+         angle_col = "90",
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         legend_breaks = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         legend_labels = c(round(seq(0, 1, length.out = 5), 2)[-5], 1),
+         annotation_colors = c(ann_c_TIL, ann_c_pt, ann_c_tissue),
+         annotation_col = ann_TIL[, c( "tissue", "patient","region")])
+
+save_pheatmap_pdf(x = scaled_TIL_heatmap,  file = paste0(figdir,"DSP2_scaled_TIL_hm.pdf"))
+```
+#  Cytokine signature
+
+```{r unsupervised chemokine, fig.height=10, fig.width=20}
+genes <- rownames(exprs(target_Data))
+
+# select genes from 12-gene cytokine signature
+cyto.sig.all <- c("CCL19", "CCL21", "CXCL13", "CCL5", "CXCL9", "CXCL10", 
+                  "CCL3", "CCL4", "CXCL11", "CCL2", "CCL18", "CCL8")
+cyto.sig <- subset(genes, genes %in% cyto.sig.all)
+
+# check which genes are present in dataset
+setdiff(cyto.sig.all, cyto.sig)
+
+#create a CD45 df with custom aoi names
+data <- log2(assayDataElement(target_Data[cyto.sig,active_aois_CD45], elt = "q_norm"))
+order <- sort(colnames(data))
+data <- data[, order] #reorder columns alphabetically
+colnames(data) <- ann$name[which(ann$segment == "CD45")]
+ann_CD45 <- subset(ann, segment == "CD45")
+rownames(ann_CD45) <- ann_CD45$name
+
+#CD45
+cytokine_signature_CD45 <- pheatmap(data,
+         scale = "row", 
+         angle_col = 90,
+         main = "Cytokine signature of CD45 segment",
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         cutree_cols = 2,cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         annotation_colors = c(ann_c_TLS_TIL, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         annotation_col = ann_CD45[, c("maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = cytokine_signature_CD45 ,  file = paste0(figdir,"DSP2_cytokinesignature_CD45_hm.pdf"))
+
+#TLS
+cytokine_signature_TLS <- pheatmap(log2(assayDataElement(target_Data[cyto.sig,active_aois_TLS], elt = "q_norm")),
+         scale = "row", 
+         angle_col = 90,
+         main = "Cytokine signature of TLS",
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         cutree_cols = 3,cutree_rows = 1,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         annotation_colors = c( ann_c_pt, ann_c_tissue, ann_c_maturity, ann_c_TLS),
+         cellheight = 12, cellwidth = 12, 
+         border_color = "grey",
+         annotation_col = pData(target_Data)[, c("maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = cytokine_signature_TLS ,  file = paste0(figdir,"DSP2_cytokinesignature_TLS_hm.pdf"))
+
+#all regions
+cytokine_signature_regions <- pheatmap(log2(assayDataElement(target_Data[cyto.sig,], elt = "q_norm")),
+         scale = "row",
+         angle_col = 90,
+         main = "Cytokine signature of all regions",
+         show_rownames = T, show_colnames = F,
+         clustering_method = "complete",
+         clustering_distance_cols = "correlation",
+         clustering_distance_rows = "correlation",
+         cutree_cols = 4,cutree_rows = 1,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         annotation_colors = c(ann_c_pt, ann_c_tissue, ann_c_region, ann_c_maturity),
+         cellheight = 12, cellwidth = 12,
+         border_color = "grey",
+         annotation_col = pData(target_Data)[, c("maturity", "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = cytokine_signature_regions, file = paste0(figdir,"DSP2_cytokine_signature_regions_hm.pdf")) 
+```
+
+# Maturity selection figure
+```{r mature_pt}
+#assign maturity status per patient:GC
+ann_TLS$patient <- as.factor(ann_TLS$patient)
+index <- ann_TLS %>% filter(tissue == "GC")
+
+mature_pt <- unclass(table(index$patient, index$maturity))
+times <- unclass(table(index$patient))
+
+a <- colnames(mature_pt)[apply(mature_pt,1,which.max)] #select most common state per pt
+b <- rep(a, times = times) #repeat state times the number of samples per patient
+
+ann_TLS$mature_pt <- NA
+ann_TLS$mature_pt[which(ann_TLS$tissue == "GC")] <- b 
+
+ann$mature_pt <- NA
+ann$mature_pt[which(ann$tissue == "GC" & ann$region == "TLS")] <- b
+
+#assign maturity status per patient:PM
+index <- ann_TLS %>% filter(tissue == "PM")
+
+mature_pt <- unclass(table(index$patient, index$maturity))
+times <- unclass(table(index$patient))
+
+a <- colnames(mature_pt)[apply(mature_pt,1,which.max)] #select most common state per pt
+b <- rep(a, times = times) #repeat state times the number of samples per patient
+
+ann_TLS$mature_pt[which(ann_TLS$tissue == "PM")] <- b 
+ann$mature_pt[which(ann$tissue == "PM" & ann$region == "TLS")] <- b
+
+index <- ann_TLS %>% 
+  select(patient, tissue, mature_pt) %>% 
+  distinct(patient, tissue, mature_pt) %>% 
+  arrange(tissue)
+
+#merge with props_TLS
+#props_TLS$patient == index$patient
+props_TLS$mature_pt <- index$mature_pt
+props_TLS$region <- "TLS" 
+
+```
+
+```{r warning = F}
+ann_TLS$pt_code <- paste0(ann_TLS$patient, "_", ann_TLS$tissue)
+
+mat_selection <- data.frame(unclass(table(ann_TLS$pt_code, ann_TLS$maturity)))
+colnames(mat_selection) <- c("mature", "non-mature")
+
+mature <- rownames(mat_selection)[c(1:5, 7, 11)]
+not_mature <- rownames(mat_selection)[c(6,9:10, 13)]
+ambiguous <- setdiff(rownames(mat_selection), c(mature, not_mature))
+
+#in df
+mat_selection$mat_pt <- NA
+mat_selection$mat_pt[which(rownames(mat_selection) %in% mature)] <- "mature"
+mat_selection$mat_pt[which(rownames(mat_selection) %in% not_mature)] <- "non-mature"
+mat_selection$mat_pt[which(rownames(mat_selection) %in% ambiguous)] <- "ambiguous"
+
+levels <-  c( "ambiguous", "mature", "non-mature")
+mat_selection$mat_pt <- factor(mat_selection$mat_pt, levels = levels)
+mat_selection %<>% select(`non-mature`, mature, mat_pt)
+
+col_scale <- brewer.pal(max(mat_selection[,1:2]), "Greens")
+ann_c_maturity <- list("mat_pt" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA", "ambiguous" = "white"))
+
+row_ann <- HeatmapAnnotation(mat_pt = as.matrix(mat_selection[,3]), 
+                             which = "row",
+                             show_annotation_name = F,
+                             col = list(mat_pt  = ann_c_maturity[[1]],
+                               annotation_legend_param = list(mat_pt = list(
+                               title = "assigned state", 
+                               title_position = "topleft",
+                               labels = levels))),
+                            width = unit(5, "mm"))
+
+pdf(file = paste0(figdir, "DSP2_maturity_pt_assignment.pdf"), height = 5, width = 3)
+
+Heatmap(mat_selection[1:2], 
+        col = col_scale, 
+        name = "no. of states",
+        cluster_rows = F, 
+        cluster_columns = F, 
+        column_names_side = "top", 
+        row_names_side = "right", 
+        right_annotation = row_ann)
+
+dev.off()
+
+```
+
+```{r}
+mat_selection[mat_selection == "ambiguous" ] <- NA
+
+pData(target_Data)$pt_code <-  paste0(pData(target_Data)$patient, "_", pData(target_Data)$tissue)
+  
+new <- left_join(pData(target_Data) %>% select(pt_code), mat_selection %>% rownames_to_column("pt_code") %>% select(pt_code, mat_pt), by = "pt_code")
+new$pt_code == pData(target_Data)$pt_code
+pData(target_Data)$mature_pt <- new$mat_pt
+
+ann$mature_pt <- NULL
+#ann$pt_code == new$pt_code
+ann$mature_pt <- new$mat_pt
+```
+
+
+
+# Correlation TLS-subsets with TIL-subsets
+```{r}
+#merge with props_TIL
+props_TIL$pt_code <- paste0(props_TIL$patient, "_", props_TIL$tissue)
+props_TIL <- left_join(props_TIL, mat_selection %>% rownames_to_column("pt_code") %>% select(pt_code, mat_pt), by = "pt_code")
+props_TIL$region <- "TIL" 
+```
+
+```{r fig.width=10, fig.height=10}
+means <- colMeans(props_TLS_all[,-1])
+index <- names(means[which(means > 0.02)])
+index <- index[index != "B memory"] # only zeros in TIL
+
+props_TLS$pt_code <- paste0(props_TLS$patient, "_", props_TLS$tissue)
+props_TIL$pt_code <- paste0(props_TIL$patient, "_", props_TIL$tissue)
+
+exclude <- c(setdiff(props_TLS %>% distinct(pt_code), props_TIL %>% distinct(pt_code)), #P17_GC, P11_PM
+            setdiff( props_TIL %>% distinct(pt_code), props_TLS %>% distinct(pt_code))) %>% unlist %>% as.vector #p14_GC
+
+props_TLS %>% filter(!pt_code %in% exclude) %>% select(pt_code) %>% unlist %>% as.vector == props_TIL %>% filter(!pt_code %in% exclude) %>% select(pt_code) %>% unlist %>% as.vector
+
+TLS_mat <- props_TLS %>% filter(!pt_code %in% exclude) %>% select(index)
+TIL_mat <- props_TIL %>% filter(!pt_code %in% exclude) %>% select(index)
+
+# TLS_mat <- props_TLS %>% select(index)
+# TIL_mat <- props_TIL %>% select(index)
+
+cor_mat <- cor(x = TLS_mat, y = TIL_mat)
+cor_test_mat <- corr.test(x = TLS_mat, y = TIL_mat, method = "spearman")$p
+
+pdf(file = paste0(figdir, "DSP2_corrplot subsets TLS and TIL_all pt.pdf"))
+
+corrplot(corr = cor_mat, 
+         method = "ellipse",
+         tl.col = "black",
+         tl.cex = 1.5, 
+         pch.col = "white",
+         p.mat = cor_test_mat,
+         sig.level = 0.05,
+         insig = "label_sig",
+         mar = c(2, 2, 2, 2))
+
+dev.off()
+ 
+#cor_mat[cor_mat > -0.6 & cor_mat < 0.6] <- NA
+#cor_mat
+```
+# Boxplots mature TLS vs non-mature
+```{r}
+coi <- c("macrophages", "B naive", "B memory", "plasma cells", "CD4 T naive", "CD4 T memory", "CD8 T naive",
+         "CD8 T memory", "Treg")
+
+stat_test <- props_TLS_all_long %>%
+  filter(cells %in% coi) %>%
+  mutate(maturity = factor(maturity, 
+                           levels = c("non-mature", "mature"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages"))) %>%
+  group_by(cells) %>%
+  pairwise_wilcox_test(prop ~ maturity, 
+                       p.adjust.method = "fdr") %>%
+  mutate(p.symbol = p.adj.signif) 
+
+stat_test$p.symbol[stat_test$p.symbol == "****"] <- "***" # maxsignificance set to p < 0.001
+
+props_TLS_all_long %>%  
+  filter(cells %in% coi) %>%
+  mutate(maturity = factor(maturity, 
+                           levels = c("non-mature", "mature"))) %>%
+  mutate(cells = factor(cells, 
+                        levels = c("B naive", "B memory", "plasma cells", "CD4 T naive", 
+                                   "CD4 T memory", "CD8 T naive", "CD8 T memory","Treg","macrophages"))) %>%
+  ggplot(aes(x = cells, y = prop)) +
+    geom_boxplot(aes(fill = maturity),
+                 position = position_dodge(0.8), 
+                 width = 0.6, 
+                 fatten = 1) +
+    scale_fill_manual(values = ann_c_maturity[[1]][1:2]) +
+    stat_pvalue_manual(stat_test %>% 
+                         add_x_position(x = "cells") %>% 
+                         add_y_position(step.increase = 0.06), 
+                     hide.ns = T,
+                     label = "p.symbol", 
+                     tip.length = 0.01, label.size = 6) +
+    theme_classic() +
+    theme_bp()+
+    ylab("proportions") +
+    scale_x_discrete(labels = label_wrap(10))+
+    ylim(-0.05, 0.75)
+
+ggsave("DSP2_boxplots maturity state per pt_matVSnotmat.pdf", device = "pdf", height = 5, width = 11, path = figdir)
+```
+
+
+# Differential gene expression GC vs PM using LMM 
+```{r}
+# convert test variables to factors
+pData(target_Data)$testPatient <- factor(pData(target_Data)$patient, unique(target_Data$patient))  # Manual
+pData(target_Data)$testTissue <- factor(pData(target_Data)$tissue, unique(target_Data$tissue))
+pData(target_Data)$testRegion <- factor(pData(target_Data)$region, unique(target_Data$region))
+pData(target_Data)$testMaturity <- factor(pData(target_Data)$mature_pt, levels = c("non-mature", "mature"))
+pData(target_Data)[["slide"]] <- factor(pData(target_Data)[["slide_name"]])
+
+```
+
+## TLS differential genes {.tabset .tabset-pills}
+LMM: comparing TLS in GC with TLS in PM while correcting for patient effects.
+```{r LMM TLS, results = 'hide', warning  = F}
+
+  ind <- pData(target_Data)$region == "TLS"
+
+    mixedOutmc <-
+        mixedModelDE(target_Data[,ind],
+                     elt = "log_q",
+                     modelFormula = ~ testTissue + (1 | testPatient),
+                     groupVar = "testTissue",
+                     nCores = parallel::detectCores(),
+                     multiCore = TRUE)
+    
+    # format results as data.frame
+     lmm_results <- do.call(rbind, mixedOutmc["lsmeans", ])
+    tests <- rownames( lmm_results)
+     lmm_results <- as.data.frame( lmm_results)
+     lmm_results$Contrast <- tests
+    
+    # use lapply in case you have multiple levels of your test factor to
+    # correctly associate gene name with it's row in the results table
+     lmm_results$Gene <- 
+        unlist(lapply(colnames(mixedOutmc),
+                      rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+    # lmm_results$Subset <- status
+     lmm_results$FDR <- p.adjust( lmm_results$`Pr(>|t|)`, method = "fdr")
+     lmm_results <-  lmm_results[, c("Gene", "Contrast", "Estimate", 
+                         "Pr(>|t|)", "FDR")]
+```
+
+### Vulcanoplot of TLS-LMM
+
+```{r lmm_vulcano, warning = F, fig.height=5, fig.width=5}
+# Categorize Results based on P-value & FDR for plotting
+fc_threshold = 1
+
+lmm_results$Color <- "ns"
+lmm_results$Color[lmm_results$`Pr(>|t|)` < 0.05] <- "p < 0.05"
+lmm_results$Color[lmm_results$FDR < 0.05] <- "FDR < 0.05"
+lmm_results$Color[lmm_results$FDR < 0.001] <- "FDR < 0.001"
+#lmm_results$Color[abs(lmm_results$Estimate) < fc_threshold] <- paste("NS or FC < ", fc_threshold)
+lmm_results$Color <- factor(lmm_results$Color, levels = c("ns", "p < 0.05", "FDR < 0.05"))
+
+for(c in unique(lmm_results$Contrast) ) {
+  print(c)
+  lmm_results_slice = lmm_results[lmm_results$Contrast == c,]
+
+  # pick top genes for either side of volcano to label
+  # order genes for convenience:
+  lmm_results_slice$invert_P <- (-log10(lmm_results_slice$`Pr(>|t|)`)) * sign(lmm_results_slice$Estimate)
+  top_g <- c()
+
+  lmm_results_slice <- lmm_results_slice[, -1*ncol(lmm_results_slice)] # remove invert_P from matrix
+  
+  # Flip Contrast
+  contrast_lab <- as.character(lmm_results_slice$Contrast)
+  contrast_lab <- strsplit(contrast_lab, "-")[[1]]
+  contrast_lab <- paste(contrast_lab[2], "-", contrast_lab[1])
+  
+  # Graph results
+  print(ggplot(lmm_results_slice,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = Gene)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("TLS") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (p-value)")+
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(data = subset(lmm_results_slice,  FDR < 0.05 | abs(lmm_results_slice$Estimate) > fc_threshold),
+                          point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), legend.title = element_blank())#+
+          #facet_wrap(~Subset, scales = "free_y")
+        )
+}
+
+
+ggsave("DSP2_vulcano LMM TLS.pdf", device = "pdf", width = 6, height = 6, path = figdir)
+```
+
+### Heatmap of genes identified in TLS-LMM
+
+```{r heatmap_sig_genes TLS, fig.height=10, fig.width=10}
+my_gois <-unique(subset(lmm_results, Color == "FDR < 0.05")$Gene)
+ann_c_maturity <- list("maturity" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+if(length(my_gois)<2) {
+  print("No significant results to show")
+ 
+}else{
+
+order <- ann %>% filter(region == "TLS") %>% arrange(tissue, maturity) %>% select(aois) %>% unlist %>% as.vector
+
+pheatmap(assayDataElement(target_Data[my_gois, active_aois_TLS], elt = "log_q")[,order],
+         cluster_cols = F,
+         scale = "row", 
+         gaps_col = 15,
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "TLS: GC versus PM, FDR < 0.05 in LMM",
+         annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+         annotation_col = pData(target_Data)[, c("maturity", "tissue","patient", "region")])
+  
+}
+```
+
+## TIL differential genes{.tabset .tabset-pills}
+
+```{r LMM TIL, results = 'hide'}
+# run LMM:
+lmm_results_TIL <- c()
+
+  ind <- pData(target_Data)$region == "TIL"
+
+    mixedOutmc <-
+        mixedModelDE(target_Data[,ind],
+                     elt = "log_q",
+                     modelFormula = ~ testTissue + (1 | testPatient),
+                     groupVar = "testTissue",
+                     nCores = parallel::detectCores(),
+                     multiCore = TRUE)
+    
+    # format results as data.frame
+     lmm_results <- do.call(rbind, mixedOutmc["lsmeans", ])
+    tests <- rownames( lmm_results)
+     lmm_results <- as.data.frame( lmm_results)
+     lmm_results$Contrast <- tests
+    
+    # use lapply in case you have multiple levels of your test factor to
+    # correctly associate gene name with it's row in the results table
+     lmm_results$Gene <- 
+        unlist(lapply(colnames(mixedOutmc),
+                      rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+    # lmm_results$Subset <- status
+     lmm_results$FDR <- p.adjust( lmm_results$`Pr(>|t|)`, method = "fdr")
+     lmm_results <-  lmm_results[, c("Gene", "Contrast", "Estimate", 
+                         "Pr(>|t|)", "FDR")]
+    
+    
+ lmm_results_TIL <- rbind(lmm_results_TIL,  lmm_results)
+#}
+```
+
+### Vulcanoplot of TIL-LMM
+Note that no genes were found with FDR\< 0.05. Instead, P \< 0.05 is used.
+
+```{r lmm_vulcano TIL, fig.height=5, fig.width=5}
+# Categorize Results based on P-value & FDR for plotting
+fc_threshold = 1
+
+lmm_results_TIL$Color <- "ns"
+lmm_results_TIL$Color[lmm_results_TIL$`Pr(>|t|)` < 0.05] <- "p < 0.05"
+lmm_results_TIL$Color[lmm_results_TIL$FDR < 0.05] <- "FDR < 0.05"
+lmm_results_TIL$Color[lmm_results_TIL$FDR < 0.001] <- "FDR < 0.001"
+#lmm_results_TIL$Color[abs(lmm_results_TIL$Estimate) < fc_threshold] <- paste("NS or FC < ", fc_threshold)
+lmm_results_TIL$Color <- factor(lmm_results_TIL$Color, levels = c("ns", "p < 0.05", "FDR < 0.05"))
+
+for(c in unique(lmm_results_TIL$Contrast) ) {
+  print(c)
+  lmm_results_TIL_slice = lmm_results_TIL[lmm_results_TIL$Contrast == c,]
+
+  # pick top genes for either side of volcano to label
+  # order genes for convenience:
+  lmm_results_TIL_slice$invert_P <- (-log10(lmm_results_TIL_slice$`Pr(>|t|)`)) * sign(lmm_results_TIL_slice$Estimate)
+  top_g <- c()
+
+  lmm_results_TIL_slice <- lmm_results_TIL_slice[, -1*ncol(lmm_results_TIL_slice)] # remove invert_P from matrix
+  
+  # Flip Contrast
+  contrast_lab <- as.character(lmm_results_TIL_slice$Contrast)
+  contrast_lab <- strsplit(contrast_lab, "-")[[1]]
+  contrast_lab <- paste(contrast_lab[2], "-", contrast_lab[1])
+  
+  # Graph results
+  print(ggplot(lmm_results_TIL_slice,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = Gene)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("TIL") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (p-value)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(data = subset(lmm_results_TIL_slice,  FDR < 0.05 | abs(lmm_results_TIL_slice$Estimate) > fc_threshold),
+                          point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                legend.title = element_blank())#+
+          #facet_wrap(~Subset, scales = "free_y")
+        )
+}
+
+
+ggsave("DSP2_vulcano LMM TIL.pdf", device = "pdf", height = 6, width = 6, path = figdir)
+```
+
+### Heatmap of TIL-LMM
+Remember that no genes were found with FDR\< 0.05. Instead, P \< 0.05 is used
+
+```{r heatmap_sig_genes TIL, fig.height=22, fig.width=10}
+my_gois <-unique(subset(lmm_results_TIL, Color == "FDR < 0.05")$Gene)
+
+if(length(my_gois)<2) {
+  print("No significant results to show")
+ 
+}else{
+
+pheatmap(log2(assayDataElement(target_Data[my_gois, active_aois_TIL], elt = "q_norm")),
+         scale = "row",
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "TIL LMM DE genes: GC versus PM, P < 0.05",
+         annotation_colors = c(ann_c_TIL,ann_c_pt, ann_c_tissue),
+         annotation_col = pData(target_Data)[, c( "tissue","patient", "region")])
+  
+}
+```
+
+## Tumor differential genes {.tabset .tabset-pills}
+
+```{r LMM tumor}
+# run LMM:
+lmm_results_Tumor <- c()
+
+  ind <- pData(target_Data)$region == "Tumor"
+
+    mixedOutmc <-
+        mixedModelDE(target_Data[,ind],
+                     elt = "log_q",
+                     modelFormula = ~ testTissue + (1 | testPatient),
+                     groupVar = "testTissue",
+                     nCores = parallel::detectCores(),
+                     multiCore = TRUE)
+    
+    # format results as data.frame
+     lmm_results <- do.call(rbind, mixedOutmc["lsmeans", ])
+    tests <- rownames( lmm_results)
+     lmm_results <- as.data.frame( lmm_results)
+     lmm_results$Contrast <- tests
+    
+    # use lapply in case you have multiple levels of your test factor to
+    # correctly associate gene name with it's row in the results table
+     lmm_results$Gene <- 
+        unlist(lapply(colnames(mixedOutmc),
+                      rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+    # lmm_results$Subset <- status
+     lmm_results$FDR <- p.adjust( lmm_results$`Pr(>|t|)`, method = "fdr")
+     lmm_results <-  lmm_results[, c("Gene", "Contrast", "Estimate", 
+                         "Pr(>|t|)", "FDR")]
+    
+    
+ lmm_results_Tumor <- rbind(lmm_results_Tumor,  lmm_results)
+#}
+```
+
+### Vulcanoplot of Tumor-LMM
+
+```{r lmm_vulcano tumor, warning = F,  fig.height=5, fig.width=5}
+# Categorize Results based on P-value & FDR for plotting
+fc_threshold = 1
+
+lmm_results_Tumor$Color <- "ns"
+lmm_results_Tumor$Color[lmm_results_Tumor$`Pr(>|t|)` < 0.05] <- "p < 0.05"
+lmm_results_Tumor$Color[lmm_results_Tumor$FDR < 0.05] <- "FDR < 0.05"
+lmm_results_Tumor$Color[lmm_results_Tumor$FDR < 0.001] <- "FDR < 0.001"
+#lmm_results_Tumor$Color[abs(lmm_results_Tumor$Estimate) < fc_threshold] <- paste("NS or FC < ", fc_threshold)
+lmm_results_Tumor$Color <- factor(lmm_results_Tumor$Color, levels = c("ns", "p < 0.05", "FDR < 0.05"))
+
+for(c in unique(lmm_results_Tumor$Contrast) ) {
+  print(c)
+  lmm_results_Tumor_slice = lmm_results_Tumor[lmm_results_Tumor$Contrast == c,]
+
+  # pick top genes for either side of volcano to label
+  # order genes for convenience:
+  lmm_results_Tumor_slice$invert_P <- (-log10(lmm_results_Tumor_slice$`Pr(>|t|)`)) * sign(lmm_results_Tumor_slice$Estimate)
+  top_g <- c()
+
+  lmm_results_Tumor_slice <- lmm_results_Tumor_slice[, -1*ncol(lmm_results_Tumor_slice)] # remove invert_P from matrix
+  
+  # Flip Contrast
+  contrast_lab <- as.character(lmm_results_Tumor_slice$Contrast)
+  contrast_lab <- strsplit(contrast_lab, "-")[[1]]
+  contrast_lab <- paste(contrast_lab[2], "-", contrast_lab[1])
+  
+  # Graph results
+  print(ggplot(lmm_results_Tumor_slice,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = Gene)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("Tumor") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (p-value)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(data = subset(lmm_results_Tumor_slice,  FDR < 0.05 | abs(lmm_results_Tumor_slice$Estimate) > fc_threshold),
+                          point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5), legend.title = element_blank())#+
+          #facet_wrap(~Subset, scales = "free_y")
+        )
+}
+
+ggsave("DSP2_vulcano LMM Tumor.pdf", device = "pdf", height = 6, width = 6, path = figdir)
+
+```
+
+### Heatmap of Tumor-LMM
+Please note that this heatmap does *NOT* show DE values obtained via LMM itself. It rather shows the Q3 normalized (q-norm) of genes that were identified as significantly different in LMM.
+
+"Q3 normalization uses the top 25% of expressed genes to normalize across ROIs/segments, so it is robust to changes in expression of individual genes and ideal for making comparisons across ROIs/segments."
+```{r heatmap_sig_genes tumor, fig.height=11, fig.width=10}
+my_gois <-unique(subset(lmm_results_Tumor, Color == "FDR < 0.05")$Gene)
+
+if(length(my_gois)<2) {
+  print("No significant results to show")
+ 
+}else{
+
+pheatmap(log2(assayDataElement(target_Data[my_gois, active_aois_Tumor], elt = "q_norm")),
+         scale = "row",
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "Tumor LMM DE genes: GC versus PM, FDR < 0.05",
+         annotation_colors = c(ann_c_tumor,ann_c_pt, ann_c_tissue),
+         annotation_col = pData(target_Data)[, c("tissue","patient", "region")])
+  
+}
+```
+
+# Immune pathways
+```{r load data}
+pathwayfiles = c("LBL-10043-08_nCounter_PanCancer_Immune_Profiling_Panel_Gene_List.xlsx",
+                 "LBL-10244-03_nCounter_Vantage_RNA_Adaptive_Immunity_Panel.xlsx", 
+                 "LBL-10248-03_nCounter_Vantage_RNA_Cellular_Profiling_Panel.xlsx",
+                 "LBL-10249-03_nCounter_Vantage_RNA_Innate_Immunity_Panel.xlsx",
+                 "LBL-10358-06_nCounter_Vantage_3D_RNA_Protein_Immune_Cell_Profiling_Assay_Probe_List_CS.xlsx",
+                 "LBL-10809-03_GeoMx_Cancer_Transcriptome_Atlas_Probe_List.xlsx",
+                 "LBL-C0269-03_nCounter-Human-Immunology-V2-Panel-Gene-List.xlsx",
+                 "Nanostring immune exhaustion gene list.xlsx")
+
+#vector is also order in list
+nameextenstions = c("PanCancer_Immune_Profiling_Panel",
+                    "RNA_Adaptive_Immunity_Panel",
+                    "RNA_Cellular_Profiling_Panel",
+                    "RNA_Innate_Immunity_Panel",
+                    "RNA_Protein_Immune_Cell_Profiling_Assay",
+                    "GeoMx_Cancer_Transcriptome_Atlas",
+                    "Human-Immunology-V2-Panel",
+                    "Nanostring immune exhaustion gene list")
+
+relevantslides = c("Immune Response Categories",
+                   "Annotations",
+                   "Annotations",
+                   "Annotations",
+                   "Immune Response Categories",
+                   "Annotations",
+                   "Annotations",
+                   "Annotations")
+
+
+pathwaylists = list()
+for (i in 1:length(pathwayfiles)){
+  df = data.frame(read_xlsx(paste("Panels/", pathwayfiles[i], sep=''), sheet=relevantslides[i], skip=1, col_types="text"))
+  ncol = dim(df)[2] - 2
+  pathways = list()
+  for (n in 1:ncol){
+    Col = df[,n+2]
+    genes = Col%in%'+'
+    pathways[[n]] = df[genes,1]
+  }
+  names(pathways) <- paste(names(df)[3:(ncol+2)])
+  names(pathways) <- gsub(".", " ", names(df)[3:(ncol+2)], fixed = T)
+
+  pathwaylists[[i]] <- pathways
+}
+
+names(pathwaylists) <- nameextenstions
+
+```
+
+
+
+```{r immune-specific pathways}
+#make a list
+genes <- rownames(exprs(target_Data))
+
+#import different categories from CTApanel
+categories <- read_xlsx("Panels/LBL-10809-03_GeoMx_Cancer_Transcriptome_Atlas_Probe_List.xlsx", sheet = "Categories") %>% as.data.frame
+categories <- tidyr::gather(categories, "panel","pathways")
+categories <- subset(categories, pathways != "NA")
+categories <- arrange(categories, pathways)
+
+#make a list
+msigdbr_list <-  pathwaylists[["GeoMx_Cancer_Transcriptome_Atlas"]]
+
+names <- read_xlsx("Panels/CTA-panel-names.xlsx") %>% as.data.frame
+names(msigdbr_list) <- names$new_names #correct the names
+
+msigdbr_list<- lapply(msigdbr_list, function(x) x[x %in% genes])
+msigdbr_list <- msigdbr_list[lapply(msigdbr_list, length) > 3]
+
+cancer_ag <- msigdbr_list[["Cancer Antigens"]]
+
+#annotation colors 
+ann_colors_panels = list(
+  'panel' = c("Adaptive Immunity"=brewer.pal(8,"Accent")[1], "Innate Immunity"=brewer.pal(8,"Accent")[2], "Immune Response"=brewer.pal(8,"Accent")[3])
+)
+
+```
+
+add extra pathways
+```{r}
+#Huang X, Nat. Com. 2023
+gene_panels <- read_xlsx("Projects/General/Suppl_gene signatures.xlsx")
+gene_list <- list()
+
+for (sig in 1:ncol(gene_panels)) {
+  
+  gene_list[[colnames(gene_panels)[sig]]] <- gene_panels[,sig] %>% na.omit %>% unlist %>% as.vector
+  
+}
+
+gene_list <- lapply(gene_list, function(x) x[x %in% genes])
+gene_list <- gene_list [lapply(gene_list, length) > 3]
+
+```
+
+Subset immune pathways
+```{r}
+immune_panels <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Adaptive Immunity" | categories$panel == "Innate Immunity" | categories$panel == "Immune Response"])
+
+#add from other CTA panels
+other <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Cell Function"])
+immune_panels["Apoptosis"] <- other["Apoptosis"]
+immune_panels["Phagocytosis"] <- other["Phagocytosis"]
+
+other <- subset(msigdbr_list, names(msigdbr_list) %in% categories$pathways[categories$panel == "Signaling Pathways"])
+immune_panels["TGF-beta Signaling"] <- other["TGF-beta Signaling"]
+immune_panels["VEGF Signaling"] <- other["VEGF Signaling"]
+
+#add from Huang X, Nat. Com. 2023
+immune_panels["M1-like activation"] <- gene_list["M1"]
+immune_panels["M2-like activation"] <- gene_list["M2"]
+immune_panels["Pro-inflammation"] <- gene_list["Pro-inflammatory"]
+immune_panels["Anti-inflammation"] <- gene_list["Anti-inflammatory"]
+immune_panels["Cytotoxicity"] <- gene_list["Cytotoxic"] #has more genes
+immune_panels["Proliferation"] <- gene_list["Proliferative"]
+
+immune_panels["Cancer Antigens"] <- NULL
+
+pw_gene_df<-data.frame(Pathway = names(immune_panels))
+pw_gene_df$genes<-immune_panels
+```
+
+```{r run_gsva}
+ssgsea_results_CTA <- GSVA::gsva(expr = assayDataElement(target_Data,
+                                   elt = "log_q"),
+                            gset.idx.list = immune_panels,
+                            method = "ssgsea",
+                            min.sz = 5,
+                            max.sz = 500,
+                            verbose = FALSE)
+geneSetObj <-
+  NanoStringGeoMxSet(assayData = ssgsea_results_CTA,
+                     phenoData = AnnotatedDataFrame(pData(target_Data)),
+                     protocolData = protocolData(target_Data),
+                     featureType = "GeneSet",
+                     check = FALSE)
+
+pw_matrix_CTA <-assayDataElement(geneSetObj, elt = "exprs")
+
+#ssgsea_results_CTA %>% colnames == assayDataElement(target_Data,
+#                                   elt = "log_q") %>% colnames
+
+```
+
+
+## TLS: DE pathway analysis between (GC vs PM)
+```{r LMM_of_pathway_analysis TLS}
+# # convert test variables to factors
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)$testRegion <- factor(pData(geneSetObj)$region, unique(target_Data$region))
+pData(geneSetObj)$testSegment <- factor(pData(geneSetObj)$segment, unique(target_Data$segment))
+pData(geneSetObj)$testMature_pt <- factor(pData(geneSetObj)$mature_pt, unique(target_Data$mature_pt))
+pData(geneSetObj)[["slide"]]<-factor(pData(geneSetObj)[["slide_name"]])
+#pData(target_Data)$testRegion<-factor(pData(target_Data)$tissue, unique(count_mat$region))
+
+ind <- pData(target_Data)$region == "TLS"
+
+```
+
+```{r PATHWAYS}
+mixedOutmc <-
+  mixedModelDE(geneSetObj[,ind],
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testPatient),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+#r_ssgsea_test$Genes <- msigdbr_list seems unreliable as gsva omits pathways if genes are not in data..
+
+# use lapply in case you have multiple levels of your test factor to
+# correctly associate gene name with it's row in the results table
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+#r_ssgsea_test$Subset <- status
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df)
+```
+
+### Heatmap immune panels
+
+Please note that this heatmap does *NOT* show DE values obtained via LMM itself. It only shows the pathways that were significantly different according to LMM and plots the values obtained via single sample gene set enrichtment analysis (ssgsea).
+```{r heatmap_sig_genes TLS LMM, fig.height=9, fig.width=12}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw_CTA <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)]
+
+TLS_hm <- pheatmap(pw_matrix_CTA[active_pw_CTA, active_aois_TLS],
+         scale = "row",
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "TLS pathways: GC versus PM, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_TLS, ann_c_pt,ann_c_tissue,ann_c_maturity),
+        annotation_names_row = F,
+         annotation_col = pData(target_Data)[, c("maturity",  "tissue","patient", "region")])
+
+save_pheatmap_pdf(x = TLS_hm,  file = paste0(figdir,"DSP2_LMM_GCvsPM_TLS_hm.pdf"))
+
+```
+
+## Non-mature vs mature
+
+## LMM-DE analysis TLS: mature vs non-mature
+```{r}
+target_Data_TLS <- subset(geneSetObj,select = pData(geneSetObj)[["region"]] == "TLS")
+target_Data_TLS <- subset(target_Data_TLS, select = phenoData(target_Data_TLS)[["maturity"]] %in% c("non-mature", "mature"))
+
+pData(target_Data_TLS)$dfRegion <- as.factor(pData(target_Data_TLS)$region)
+pData(target_Data_TLS)$dfPatient <- factor(pData(target_Data_TLS)$patient,
+                                       levels=unique(pData(target_Data_TLS)$patient))
+pData(target_Data_TLS)$dfMature <- factor(pData(target_Data_TLS)$maturity, levels = c("non-mature", "mature"))
+
+  mixedOutmc <-
+    mixedModelDE(target_Data_TLS,
+                 elt = "exprs",
+                 modelFormula = ~ dfMature + (1 | dfPatient),
+                 groupVar = "dfMature",
+                 multiCore = FALSE,
+                 pAdjust = NULL
+                 )
+  
+  lsmeans <- lapply(mixedOutmc, function(x) {x$lsmeans})
+  anova <- unlist(lapply(mixedOutmc, function(x) {x$anova}))
+  b <- lapply(lsmeans, function(x) {x[1]})
+  c <- lapply(lsmeans, function(x) {x[2]})
+  lmm_ssgsea_results <- cbind.data.frame(unlist(b), unlist(c))
+  names(lmm_ssgsea_results) <- c('LogFC', 'Pr(>|t|)')
+ 
+  ssgsea_dfs <- rownames(lmm_ssgsea_results)
+  lmm_ssgsea_results$Pathway <- rownames(lmm_ssgsea_results)
+  lmm_ssgsea_results$FDR <- p.adjust(lmm_ssgsea_results$`Pr(>|t|)`, method = "fdr")
+  lmm_ssgsea_results <- lmm_ssgsea_results[, c("Pathway", "LogFC",
+                                     "Pr(>|t|)", "FDR")]
+```
+
+```{r fig.height=10, fig.width=20}
+ann_c_maturity <- list("maturity" = c("non-mature" = "#CBB9F9", "mature" = "#9066FA"))
+
+pw_matrix<-assayDataElement(target_Data_TLS, elt = "exprs")
+order <- c(ann$aois[which(ann$maturity == "mature" & ann$region == "TLS")], 
+           ann$aois[which(ann$maturity == "non-mature"& ann$region == "TLS")])
+pw_matrix <- pw_matrix[,order]
+
+active_pw<-filter(lmm_ssgsea_results, `Pr(>|t|)` < 0.05 )$Pathway
+
+DE_im_pathways <- pheatmap(pw_matrix[active_pw, order],
+           scale = "row", 
+           show_rownames = TRUE, show_colnames = F, 
+           gaps_col = 17,
+           annotation_names_row = F,
+           fontsize_row = 11,
+           cluster_cols = F,
+           # clustering_method = "complete",
+           # clustering_distance_cols = "euclidean",
+           clustering_distance_rows = "euclidean",
+           cutree_cols = 2, cutree_rows = 2,
+           breaks = seq(-3, 3, 0.05),
+           color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+           cellheight = 12, cellwidth = 12, 
+           main = "mature vs non-mature TLS, p < 0.05",
+           border_color = "grey",
+           annotation_colors = c(ann_c_TLS, ann_c_pt, ann_c_tissue, ann_c_maturity),
+           annotation_col = pData(target_Data_TLS)[, c("maturity","tissue","patient", "region")])
+
+save_pheatmap_pdf(x = DE_im_pathways, file = paste0(figdir,"DSP2_non-matmat_vs_mat_TLS_im_pathways_p0.05.pdf"))
+
+filter(lmm_ssgsea_results, FDR < 0.05 )$Pathway %>% print
+```
+
+##  TIL: DE pathway analysis between (GC vs PM)
+
+```{r LMM_of_pathway_analysis TIL}
+# # convert test variables to factors
+pData(geneSetObj)$testPatient <- factor(pData(geneSetObj)$patient, unique(target_Data$patient))
+pData(geneSetObj)$testTissue <- factor(pData(geneSetObj)$tissue, unique(target_Data$tissue))
+pData(geneSetObj)$testRegion <- factor(pData(geneSetObj)$region, unique(target_Data$region))
+pData(geneSetObj)$testSegment <- factor(pData(geneSetObj)$segment, unique(target_Data$segment))
+pData(geneSetObj)[["slide"]]<-factor(pData(geneSetObj)[["slide_name"]])
+#pData(target_Data)$testRegion<-factor(pData(target_Data)$tissue, unique(count_mat$region))
+
+ind <- pData(target_Data)$region == "TIL"
+
+#df
+pw_gene_df<-data.frame(Pathway = names(immune_panels))
+pw_gene_df$genes<-immune_panels
+
+```
+
+```{r LMM based on CTA panels in TIL}
+mixedOutmc <-
+  mixedModelDE(geneSetObj[,ind],
+               elt = "exprs",
+               modelFormula = ~ testTissue + (1 | testPatient),
+               groupVar = "testTissue",
+               nCores = parallel::detectCores(),
+               multiCore = TRUE)
+
+# format results as data.frame
+r_ssgsea_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+ssgsea_tests <- rownames(r_ssgsea_test)
+r_ssgsea_test <- as.data.frame(r_ssgsea_test)
+r_ssgsea_test$Contrast <- ssgsea_tests
+#r_ssgsea_test$Genes <- msigdbr_list seems unreliable as gsva omits pathways if genes are not in data..
+
+# use lapply in case you have multiple levels of your test factor to
+# correctly associate gene name with it's row in the results table
+r_ssgsea_test$Pathway <-
+  unlist(lapply(colnames(mixedOutmc),
+                rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+
+#r_ssgsea_test$Subset <- status
+r_ssgsea_test$FDR <- p.adjust(r_ssgsea_test$`Pr(>|t|)`, method = "fdr")
+r_ssgsea_test <- r_ssgsea_test[, c("Pathway", "Contrast", "Estimate",
+                                   "Pr(>|t|)", "FDR")]
+r_ssgsea_test <- merge(r_ssgsea_test, pw_gene_df)
+```
+
+
+```{r}
+if (length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]) <= 1) {
+  print("no significant pathways of which FDR < 0.05; we will check for p-values")
+  
+}else{
+  
+  print(paste(length(r_ssgsea_test$Pathway[which(r_ssgsea_test$`FDR` < 0.05)]), "pathways with FDR < 0.05"))
+}
+
+active_pw_CTA <- r_ssgsea_test$Pathway[which(r_ssgsea_test$`Pr(>|t|)` < 0.05)]
+
+if(length(active_pw_CTA)<2) {
+  print("No significant results to show")
+ 
+}else{
+
+pheatmap(pw_matrix_CTA[active_pw_CTA, active_aois_TIL],
+         scale = "row",
+         show_rownames = TRUE, show_colnames = FALSE,
+         clustering_method = "complete",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cellheight = 12, cellwidth = 12, 
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(c("aquamarine", "black", "coral"))(120),
+         border_color = "grey",
+         main = "TLS pathways: GC versus PM, p < 0.05 in LMM",
+         annotation_colors = c(ann_c_TLS, ann_c_pt,ann_c_tissue,ann_c_maturity, ann_c_panels),
+        annotation_names_row = F,
+         annotation_row = annotation_row[1],
+         annotation_col = pData(target_Data)[, c("maturity",  "tissue","patient", "region")])
+}
+
+```
+
+# Immune checkpoints
+
+```{r fig.height=10, fig.width=25}
+genes <- rownames(exprs(target_Data))
+check_list <- read_xlsx("Projects/General/20230803_immune_checkpoints.xlsx")
+check_list <- check_list[check_list$gene %in% genes,]
+
+data <- as.data.frame(log2(assayDataElement(target_Data[check_list$gene,], elt = "q_norm"))) 
+colnames(data) <- ann$name
+ann2 <- ann
+rownames(ann2) <- ann$name
+annotation_row <- data.frame(row.names = check_list$gene, regulation = check_list$regulation)
+ann_c_reg <- list(regulation = c("activating" = "green", "inhibitory" = "red", "both" = "yellow"))
+
+```
+
+```{r fig.height=6, fig.width=6, results = 'hide'}
+TLS_cp <- lmm_results %>% 
+  filter(Gene %in% check_list$gene[which(check_list$cells != "tumor")]) %>% 
+  arrange(FDR) %>%
+  remove_rownames() %>%
+  left_join(., check_list[which(check_list$gene %in% .$Gene),], by = c("Gene" = "gene")) %>%
+  relocate(name, .before = Gene) %>% 
+  select(name:FDR) 
+
+fc_threshold = 1
+
+TLS_cp$Color <- "ns"
+TLS_cp$Color[TLS_cp$`Pr(>|t|)` < 0.05] <- "p < 0.05"
+TLS_cp$Color[TLS_cp$FDR < 0.05] <- "FDR < 0.05"
+TLS_cp$Color[TLS_cp$FDR < 0.001] <- "FDR < 0.001"
+#TLS_cp$Color[abs(TLS_cp$Estimate) < fc_threshold] <- paste("NS or FC < ", fc_threshold)
+TLS_cp$Color <- factor(TLS_cp$Color, levels = c("ns", "p < 0.05", "FDR < 0.05"))
+
+  # pick top genes for either side of volcano to label
+  # order genes for convenience:
+  TLS_cp$invert_P <- (-log10(TLS_cp$`Pr(>|t|)`)) * sign(TLS_cp$Estimate)
+  top_g <- c()
+
+  TLS_cp <- TLS_cp[, -1*ncol(TLS_cp)] # remove invert_P from matrix
+  
+  # Flip Contrast
+  contrast_lab <- as.character(TLS_cp$Contrast)
+  contrast_lab <- strsplit(contrast_lab, "-")[[1]]
+  contrast_lab <- paste(contrast_lab[2], "-", contrast_lab[1])
+  
+  # Graph results
+  #gene names
+    a <- ggplot(TLS_cp,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = Gene)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("TLS") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (P)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                aspect.ratio = 1,
+                legend.title = element_blank())
+        
+  
+  #protein names
+    b <- ggplot(TLS_cp,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = name)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("TLS") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (P)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                aspect.ratio = 1,
+                legend.title = element_blank())
+```
+
+
+```{r fig.height=6, fig.width=6, results = 'hide'}
+TIL_cp <- lmm_results_TIL%>% 
+  filter(Gene %in% check_list$gene[which(check_list$cells != "tumor")]) %>% 
+  arrange(FDR) %>%
+  remove_rownames() %>%
+  left_join(., check_list[which(check_list$gene %in% .$Gene),], by = c("Gene" = "gene")) %>%
+  relocate(name, .before = Gene) %>% 
+  select(name:FDR) 
+
+fc_threshold = 1
+
+TIL_cp$Color <- "ns"
+TIL_cp$Color[TIL_cp$`Pr(>|t|)` < 0.05] <- "p < 0.05"
+TIL_cp$Color[TIL_cp$FDR < 0.05] <- "FDR < 0.05"
+TIL_cp$Color[TIL_cp$FDR < 0.001] <- "FDR < 0.001"
+#TIL_cp$Color[abs(TIL_cp$Estimate) < fc_threshold] <- paste("ns or FC < ", fc_threshold)
+TIL_cp$Color <- factor(TIL_cp$Color, levels = c("ns", "p < 0.05", "FDR < 0.05"))
+
+  # pick top genes for either side of volcano to label
+  # order genes for convenience:
+  TIL_cp$invert_P <- (-log10(TIL_cp$`Pr(>|t|)`)) * sign(TIL_cp$Estimate)
+  top_g <- c()
+
+  TIL_cp <- TIL_cp[, -1*ncol(TIL_cp)] # remove invert_P from matrix
+  
+  # Flip Contrast
+  contrast_lab <- as.character(TIL_cp$Contrast)
+  contrast_lab <- strsplit(contrast_lab, "-")[[1]]
+  contrast_lab <- paste(contrast_lab[2], "-", contrast_lab[1])
+  
+  # Graph results
+  # gene names
+  #gene names
+    c <- ggplot(TIL_cp,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = Gene)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("TIL") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (P)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                aspect.ratio = 1,
+                legend.title = element_blank())
+  
+  #protein names
+    d <- ggplot(TIL_cp,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = name)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("TIL") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (P)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                aspect.ratio = 1,
+                legend.title = element_blank())
+```
+
+
+```{r fig.height=6, fig.width=6, results = 'hide'}
+Tumor_cp<-lmm_results_Tumor %>% 
+  filter(Gene %in% check_list$gene[which(check_list$cells != "immune")]) %>% 
+  arrange(FDR) %>%
+  remove_rownames() %>%
+  left_join(., check_list[which(check_list$gene %in% .$Gene),], by = c("Gene" = "gene")) %>%
+  relocate(name, .before = Gene) %>% 
+  select(name:FDR) 
+
+fc_threshold = 1
+
+Tumor_cp$Color <- "ns"
+Tumor_cp$Color[Tumor_cp$`Pr(>|t|)` < 0.05] <- "p < 0.05"
+Tumor_cp$Color[Tumor_cp$FDR < 0.05] <- "FDR < 0.05"
+Tumor_cp$Color[Tumor_cp$FDR < 0.001] <- "FDR < 0.001"
+#Tumor_cp$Color[abs(Tumor_cp$Estimate) < fc_threshold] <- paste("ns or FC < ", fc_threshold)
+Tumor_cp$Color <- factor(Tumor_cp$Color, levels = c("ns", "p < 0.05", "FDR < 0.05"))
+
+  # pick top genes for either side of volcano to label
+  # order genes for convenience:
+  Tumor_cp$invert_P <- (-log10(Tumor_cp$`Pr(>|t|)`)) * sign(Tumor_cp$Estimate)
+  top_g <- c()
+
+  Tumor_cp <- Tumor_cp[, -1*ncol(Tumor_cp)] # remove invert_P from matrix
+  
+  # Flip Contrast
+  contrast_lab <- as.character(Tumor_cp$Contrast)
+  contrast_lab <- strsplit(contrast_lab, "-")[[1]]
+  contrast_lab <- paste(contrast_lab[2], "-", contrast_lab[1])
+  
+  # Graph results
+  #gene names
+    e <- ggplot(Tumor_cp,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = Gene)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("Tumor") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (P)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                aspect.ratio = 1,
+                legend.title = element_blank()) 
+  
+  #protein names
+    f <- ggplot(Tumor_cp,
+               aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+                   color = Color, label = name)) +
+          geom_vline(xintercept = c(fc_threshold, -fc_threshold), lty = "dashed", color = "gray") +
+          geom_hline(yintercept = -log10(0.05), lty = "dashed", color = "gray") +
+          geom_point() +
+          ggtitle("Tumor") +
+          scale_x_continuous(breaks = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5), limits = c(-1.5, 1.5)) +
+          labs(
+            x = "PM vs GC: log2 (FC)",
+               y = "-log10 (P)") +
+          scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                        `FDR < 0.05` = "lightblue",
+                                        `p < 0.05` = "orange2",
+                                        `ns` = "gray"),
+                             guide = guide_legend(override.aes = list(size = 5))) +
+          scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+          geom_text_repel(point.padding = 0.15, color = "black",size=5,
+                          min.segment.length = .1, box.padding = .2, lwd = 2,
+                          max.overlaps = 50) +
+          theme_bw(base_size = 16) +
+          theme(legend.position = "bottom", 
+                plot.title = element_text(hjust = 0.5), 
+                aspect.ratio = 1,
+                legend.title = element_blank())
+```
+
+```{r fig.height=20, fig.width=15}
+ggarrange(a, b, c, d, e, f, ncol = 2, nrow = 3)
+ggsave("DSP2_checkpoints_volcano_all_regions.pdf", device = "pdf", path = figdir, height = 20, width = 15)
+```
+
+# Export annotations and data
+```{r}
+combined <- "Combined/"
+
+saveRDS(target_Data, file = paste0(combined, "target_Data2.RDS"))
+write_xlsx(ann, paste0(combined, "ann_2.xlsx"))
+```
+
+
+```{r exit}
+knitr::knit_exit()
+```
+
