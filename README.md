@@ -6,6 +6,8 @@ This repository contains coding scripts associated with the paper:
 
 This repository was created after publication of the study to provide additional insight into the code used for the analyses described in the paper. The repository was not part of the original publication and is provided as a retrospective resource to improve transparency and reproducibility.
 
+NOTE: This repository contains only the code; no data files are included.
+
 The scripts are organized according to their assigned prefix numbers and should generally be followed in the following folder order:
 
 1. `cohort_1`
